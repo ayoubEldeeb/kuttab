@@ -62,18 +62,29 @@ export function QuranSelector({ value, onChange, placeholder = "اختر الس�
       .replace(/ٱ/g, 'ا') // Alef wasla
       .replace(/[أإآ]/g, 'ا') // Normalize alefs
       .replace(/ة/g, 'ه') // Taa marbouta
-      .replace(/ى/g, 'ي'); // Yaa
+      .replace(/ى/g, 'ي') // Yaa
+      .replace(/ـ/g, ''); // Kashida/Tatweel
   };
 
   const filteredSurahs = SURAHS.filter(s => normalizeArabic(s).includes(normalizeArabic(searchSurah)));
   
   const availableParts = useMemo(() => {
     if (!currentSurah) return [];
+    
+    const normalizedTarget = normalizeArabic(currentSurah);
+    
     const all = [
       `بداية سورة ${currentSurah}`,
-      ...QUARTERS.filter(q => q.includes(`سورة ${currentSurah} (`)),
-      ...ATHMAN.filter(a => a.includes(`سورة ${currentSurah} (`))
+      ...QUARTERS.filter(q => {
+        const surahPart = q.match(/\| سورة ([^\(]+)/)?.[1]?.trim() || '';
+        return normalizeArabic(surahPart) === normalizedTarget;
+      }),
+      ...ATHMAN.filter(a => {
+        const surahPart = a.match(/\| سورة ([^\(]+)/)?.[1]?.trim() || '';
+        return normalizeArabic(surahPart) === normalizedTarget;
+      })
     ];
+    
     if (!searchPart) return all;
     
     const searchNormalized = normalizeArabic(searchPart);
