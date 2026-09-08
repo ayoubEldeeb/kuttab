@@ -33,6 +33,7 @@ export default function DailyLog() {
     nextReviewDate: '',
     nextReviewFrom: '',
     nextReviewTo: '',
+    nextReviewNotes: '',
     notes: '',
     writtenParts: [] as string[]
   })
@@ -80,6 +81,7 @@ export default function DailyLog() {
           nextReviewDate: todayHistory?.nextReviewDate ? new Date(todayHistory.nextReviewDate).toISOString().split('T')[0] : '',
           nextReviewFrom: todayHistory?.nextReviewFrom || '',
           nextReviewTo: todayHistory?.nextReviewTo || '',
+          nextReviewNotes: todayHistory?.nextReviewNotes || '',
           notes: todayHistory?.notes || '',
           writtenParts: parsedWrittenParts.length > 0 ? parsedWrittenParts : ['']
         })
@@ -130,8 +132,9 @@ export default function DailyLog() {
         )}
         
         {filtered?.map((student: any) => {
-          const todayHistory = student.histories[0]
-          const isExpanded = activeFormId === student.id
+          const todayHistory = student.histories.find((h: any) => h.date.startsWith(dateStr));
+          const previousAssignment = student.histories.find((h: any) => h.date < dateStr && (h.nextReviewFrom || h.nextReviewTo));
+          const isExpanded = activeFormId === student.id;
 
           return (
             <div key={student.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
@@ -152,6 +155,23 @@ export default function DailyLog() {
                         {student.currentReach ? formatPart(student.currentReach) : 'لم يحدد المستوى'}
                       </span>
                     </div>
+
+                    {previousAssignment && (
+                      <div className="text-sm text-blue-700 flex flex-col gap-1.5 bg-blue-50 p-2.5 rounded-lg border border-blue-100 w-fit max-w-full mt-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-blue-500 font-bold whitespace-nowrap text-xs">الواجب المطلوب اليوم:</span>
+                          <span className="font-bold leading-tight break-words text-sm">
+                            {previousAssignment.nextReviewFrom ? formatPart(previousAssignment.nextReviewFrom) : ''} 
+                            {previousAssignment.nextReviewTo ? ` - ${formatPart(previousAssignment.nextReviewTo)}` : ''}
+                          </span>
+                        </div>
+                        {previousAssignment.nextReviewNotes && (
+                          <div className="text-xs font-semibold bg-white/60 px-2 py-1 rounded border border-blue-100/50 inline-block">
+                            ملاحظة: {previousAssignment.nextReviewNotes}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 
@@ -251,6 +271,11 @@ export default function DailyLog() {
                             <div className="flex items-start gap-2">
                               <span className="text-gray-400 text-xs mt-0.5 font-bold w-6">إلى:</span>
                               <span className="leading-tight">{formatPart(todayHistory.nextReviewTo)}</span>
+                            </div>
+                          )}
+                          {todayHistory.nextReviewNotes && (
+                            <div className="mt-1 text-xs bg-blue-50 text-blue-700 p-1.5 rounded-md border border-blue-100">
+                              ملاحظة: {todayHistory.nextReviewNotes}
                             </div>
                           )}
                         </div>
@@ -403,6 +428,17 @@ export default function DailyLog() {
                           onChange={val => setFormData({...formData, nextReviewTo: val})}
                           placeholder="إلى موضع..."
                           className="z-20"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">ملاحظات الواجب (اختياري)</label>
+                        <input 
+                          type="text"
+                          value={formData.nextReviewNotes}
+                          onChange={e => setFormData({...formData, nextReviewNotes: e.target.value})}
+                          placeholder="مثال: نصف ثمن، التركيز على الحفظ..."
+                          className="w-full bg-white h-12 rounded-xl border border-gray-200 px-3 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none"
                         />
                       </div>
                     </div>

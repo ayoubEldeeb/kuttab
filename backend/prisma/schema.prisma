@@ -34,6 +34,7 @@ model History {
   nextReviewDate DateTime?
   nextReviewFrom String?
   nextReviewTo   String?
+  nextReviewNotes String?
 
   status         String
   notes          String?

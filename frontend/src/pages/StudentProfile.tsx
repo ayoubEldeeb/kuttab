@@ -41,6 +41,7 @@ export default function StudentProfile() {
     nextReviewDate: '',
     nextReviewFrom: '',
     nextReviewTo: '',
+    nextReviewNotes: '',
     notes: '',
     writtenParts: [] as string[]
   })
@@ -460,6 +461,17 @@ export default function StudentProfile() {
                           onChange={val => setFormData({...formData, nextReviewTo: val})}
                           placeholder="إلى موضع..."
                           className="z-10 text-sm"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-2">ملاحظات الواجب (اختياري)</label>
+                        <input 
+                          type="text"
+                          value={formData.nextReviewNotes}
+                          onChange={e => setFormData({...formData, nextReviewNotes: e.target.value})}
+                          placeholder="مثال: نصف ثمن..."
+                          className="w-full bg-white h-10 rounded-lg border border-gray-200 px-3 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none"
                         />
                       </div>
                     </div>

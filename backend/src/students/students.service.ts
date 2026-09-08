@@ -29,12 +29,8 @@ export class StudentsService {
         orderBy: { name: 'asc' },
         include: {
           histories: {
-            where: {
-              date: {
-                gte: startOfDay,
-                lte: endOfDay
-              }
-            }
+            orderBy: { date: 'desc' },
+            take: 5
           }
         }
       });
@@ -51,7 +47,7 @@ export class StudentsService {
     });
   }
 
-  async addHistory(id: number, data: { status: string; notes?: string; date?: string; type?: string; fromPart?: string; toPart?: string; nextReviewDate?: string; nextReviewFrom?: string; nextReviewTo?: string; writtenParts?: string; }) {
+  async addHistory(id: number, data: { status: string; notes?: string; date?: string; type?: string; fromPart?: string; toPart?: string; nextReviewDate?: string; nextReviewFrom?: string; nextReviewTo?: string; nextReviewNotes?: string; writtenParts?: string; }) {
     const targetDate = data.date ? new Date(data.date) : new Date();
     
     const startOfDay = new Date(targetDate);
@@ -65,10 +61,11 @@ export class StudentsService {
       type: data.type,
       fromPart: data.fromPart,
       toPart: data.toPart,
+      writtenParts: data.writtenParts,
       nextReviewDate: data.nextReviewDate ? new Date(data.nextReviewDate) : null,
       nextReviewFrom: data.nextReviewFrom,
       nextReviewTo: data.nextReviewTo,
-      writtenParts: data.writtenParts
+      nextReviewNotes: data.nextReviewNotes,
     };
 
     const existing = await this.prisma.history.findFirst({
