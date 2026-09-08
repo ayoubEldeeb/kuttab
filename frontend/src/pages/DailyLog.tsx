@@ -256,6 +256,15 @@ export default function DailyLog() {
                         </div>
                       </div>
                     )}
+
+                    {todayHistory.notes && (
+                      <div className="md:border-r border-gray-200 md:pr-8 flex-1">
+                        <span className="text-xs text-gray-500 font-bold block mb-2">ملاحظات:</span>
+                        <div className="text-sm font-medium text-gray-700 bg-white/50 p-2 rounded-lg border border-gray-100">
+                          {todayHistory.notes}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <button 
                     onClick={() => handleStatusClick(student.id, todayHistory.status, todayHistory)}
@@ -397,6 +406,16 @@ export default function DailyLog() {
                         />
                       </div>
                     </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">ملاحظات (اختياري)</label>
+                    <textarea 
+                      className="w-full rounded-xl border-gray-200 bg-white p-3 focus:ring-2 focus:ring-primary focus:border-transparent outline-none border min-h-[80px] text-sm resize-none"
+                      placeholder="أضف أي ملاحظات حول أداء الطالب..."
+                      value={formData.notes}
+                      onChange={e => setFormData({...formData, notes: e.target.value})}
+                    />
                   </div>
 
                   <div className="mt-6 flex justify-end gap-3">
