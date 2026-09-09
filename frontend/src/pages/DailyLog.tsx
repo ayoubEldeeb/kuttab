@@ -140,7 +140,7 @@ export default function DailyLog() {
             <div key={student.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
               
               {/* Header / Basic Status */}
-              <div className="flex flex-col xl:flex-row gap-6 justify-between items-start">
+              <div className="flex flex-col xl:flex-row gap-8 justify-between items-start">
                 
                 {/* Left Side: Info */}
                 <div className="flex-1 min-w-0 w-full">
@@ -153,19 +153,19 @@ export default function DailyLog() {
                     </span>
                   </div>
                   
-                  <div className="flex flex-col lg:flex-row gap-3 mt-4">
-                    <div className="text-sm text-gray-600 bg-gray-50 px-3.5 py-2.5 rounded-xl border border-gray-100 w-fit shrink-0 flex flex-col justify-center">
+                  <div className="flex flex-wrap gap-3 mt-3">
+                    <div className="text-sm text-gray-600 bg-gray-50 px-3.5 py-2.5 rounded-xl border border-gray-100 w-fit flex flex-col justify-center">
                       <span className="text-gray-400 font-bold mb-1 text-xs">مستوى الحفظ:</span>
-                      <span className="font-bold text-gray-800 leading-tight">
+                      <span className="font-bold text-gray-800 leading-snug">
                         {student.currentReach ? formatPart(student.currentReach) : 'لم يحدد المستوى'}
                       </span>
                     </div>
 
                     {previousAssignment && (
-                      <div className="text-sm text-blue-800 bg-blue-50/80 px-4 py-2.5 rounded-xl border border-blue-100 w-fit max-w-full flex flex-col gap-1 justify-center">
+                      <div className="text-sm text-blue-800 bg-blue-50/80 px-4 py-2.5 rounded-xl border border-blue-100 w-fit flex flex-col gap-1 justify-center max-w-xl">
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                           <span className="text-blue-500 font-bold text-xs shrink-0">الواجب المطلوب اليوم:</span>
-                          <span className="font-bold leading-tight break-words">
+                          <span className="font-bold leading-snug">
                             {previousAssignment.nextReviewFrom ? formatPart(previousAssignment.nextReviewFrom) : ''} 
                             {previousAssignment.nextReviewTo ? ` - ${formatPart(previousAssignment.nextReviewTo)}` : ''}
                           </span>
@@ -181,7 +181,7 @@ export default function DailyLog() {
                 </div>
                 
                 {/* Right Side: Action Buttons */}
-                <div className="flex flex-wrap xl:justify-end gap-2 w-full xl:w-auto shrink-0 mt-2 xl:mt-0">
+                <div className="flex flex-wrap xl:justify-end gap-2 w-full xl:w-[45%] mt-4 xl:mt-0">
                   {STATUS_OPTIONS.map(opt => {
                     const isSelected = isExpanded ? formData.status === opt : todayHistory?.status === opt;
                     const isAbsent = opt === 'لم يحضر';
