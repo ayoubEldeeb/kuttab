@@ -121,38 +121,44 @@ export default function RevisionLog() {
           return (
             <div key={student.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
               
-              <div className="flex flex-col md:flex-row gap-6 justify-between items-start md:items-center">
-                <div className="flex-1 min-w-0">
-                  <Link to={`/students/${student.id}`} className="font-bold text-lg text-gray-900 hover:text-primary transition-colors block truncate">
-                    {student.name}
-                  </Link>
-                  <div className="flex flex-col gap-1.5 mt-2">
-                    <div>
-                      <span className="bg-gray-100 px-2 py-0.5 rounded-md text-xs font-bold text-gray-500 border border-gray-200">{student.serialNumber}</span>
-                    </div>
-                    <div className="text-sm text-gray-500 flex items-start gap-2 bg-gray-50 p-2 rounded-lg border border-gray-100 w-fit max-w-full">
-                      <span className="text-gray-400 font-bold whitespace-nowrap">مستوى الحفظ:</span>
-                      <span className="font-bold text-gray-700 leading-tight break-words">
+              <div className="flex flex-col xl:flex-row gap-6 justify-between items-start">
+                
+                <div className="flex-1 min-w-0 w-full">
+                  <div className="flex items-center gap-3">
+                    <Link to={`/students/${student.id}`} className="font-bold text-xl text-gray-900 hover:text-primary transition-colors truncate">
+                      {student.name}
+                    </Link>
+                    <span className="bg-gray-100 px-2.5 py-1 rounded-md text-xs font-bold text-gray-500 border border-gray-200 shrink-0">
+                      {student.serialNumber}
+                    </span>
+                  </div>
+                  
+                  <div className="flex flex-col lg:flex-row gap-3 mt-4">
+                    <div className="text-sm text-gray-600 bg-gray-50 px-3.5 py-2.5 rounded-xl border border-gray-100 w-fit shrink-0 flex flex-col justify-center">
+                      <span className="text-gray-400 font-bold mb-1 text-xs">مستوى الحفظ:</span>
+                      <span className="font-bold text-gray-800 leading-tight">
                         {formatPart(student.currentReach)}
                       </span>
                     </div>
+
                     {hasRevisionSet ? (
-                      <div className="bg-blue-50/50 border border-blue-100 p-2 rounded-lg mt-1 w-full max-w-lg flex flex-col gap-1">
-                        <div className="text-xs text-blue-600 font-bold mb-1">الورد الحالي للمراجعة:</div>
-                        <div className="text-sm">
-                          من: <span className="font-bold text-blue-800">{formatPart(student.currentRevisionFrom)}</span>
-                        </div>
-                        <div className="text-sm">
-                          إلى: <span className="font-bold text-blue-800">{formatPart(student.currentRevisionTo)}</span>
+                      <div className="text-sm text-blue-800 bg-blue-50/80 px-4 py-2.5 rounded-xl border border-blue-100 w-fit max-w-full flex flex-col gap-1 justify-center">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                          <span className="text-blue-500 font-bold text-xs shrink-0">الورد الحالي للمراجعة:</span>
+                          <span className="font-bold leading-tight break-words">
+                            {formatPart(student.currentRevisionFrom)} - {formatPart(student.currentRevisionTo)}
+                          </span>
                         </div>
                       </div>
                     ) : (
-                      <div className="text-orange-500 text-sm font-medium mt-1">لم يتم تحديد ورد مراجعة لهذا الطالب</div>
+                      <div className="text-sm text-orange-700 bg-orange-50/80 px-4 py-2.5 rounded-xl border border-orange-200 w-fit max-w-full flex items-center font-medium">
+                        لم يتم تحديد ورد مراجعة لهذا الطالب
+                      </div>
                     )}
                   </div>
                 </div>
                 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap xl:justify-end gap-2 w-full xl:w-auto shrink-0 mt-2 xl:mt-0">
                   {!hasRevisionSet ? (
                     <button
                       onClick={() => handleStatusClick(student.id, 'تحديد', student)}
