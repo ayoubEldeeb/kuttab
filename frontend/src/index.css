@@ -2,32 +2,617 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Font Size Scaling */
+html, html[data-font-size="normal"] {
+  font-size: 16px;
+}
+html[data-font-size="large"] {
+  font-size: 17.5px;
+}
+html[data-font-size="xlarge"] {
+  font-size: 19px;
+}
+
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 160 84% 32%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 160 30% 94%;
+    --secondary-foreground: 160 84% 24%;
+    --muted: 215 20% 95%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 38 92% 50%;
+    --accent-foreground: 38 92% 16%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    --border: 214 28% 90%;
+    --input: 214 28% 90%;
+    --ring: 160 84% 32%;
+    --radius: 0.875rem;
+  }
+
+  /* Royal Navy Theme */
+  html[data-theme="navy"] {
+    --background: 215 28% 97%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --primary: 217 91% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 30% 94%;
+    --secondary-foreground: 217 91% 25%;
+    --ring: 217 91% 40%;
+  }
+
+  /* Warm Amber Heritage Theme */
+  html[data-theme="amber"] {
+    --background: 35 30% 98%;
+    --foreground: 24 45% 12%;
+    --card: 0 0% 100%;
+    --primary: 32 85% 36%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 35 40% 94%;
+    --secondary-foreground: 32 85% 22%;
+    --ring: 32 85% 36%;
+  }
+
+  /* Dark Luxury Theme */
+  html[data-theme="dark"] {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 10%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 160 70% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 30% 15%;
+    --secondary-foreground: 160 70% 80%;
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 65%;
+    --border: 217 33% 18%;
+    --input: 217 33% 18%;
   }
 }
+
 @layer base {
+  * {
+    @apply border-border;
+  }
   body {
     @apply bg-background text-foreground;
+    font-family: 'Tajawal', 'Cairo', system-ui, -apple-system, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
+
+/* ==========================================================================
+   THEME 1: Royal Navy Theme (data-theme="navy")
+   ========================================================================== */
+html[data-theme="navy"] body {
+  background-color: #f1f5f9;
+}
+
+html[data-theme="navy"] .from-emerald-700,
+html[data-theme="navy"] .from-emerald-800 {
+  --tw-gradient-from: #1e40af var(--tw-gradient-from-position) !important;
+}
+html[data-theme="navy"] .via-emerald-800 {
+  --tw-gradient-via: #1e3a8a var(--tw-gradient-via-position) !important;
+}
+html[data-theme="navy"] .to-teal-900,
+html[data-theme="navy"] .to-emerald-900 {
+  --tw-gradient-to: #0f172a var(--tw-gradient-to-position) !important;
+}
+
+html[data-theme="navy"] .bg-emerald-950,
+html[data-theme="navy"] .bg-emerald-900,
+html[data-theme="navy"] .bg-emerald-850,
+html[data-theme="navy"] .bg-emerald-800,
+html[data-theme="navy"] .bg-emerald-700 {
+  background-color: #1e3a8a !important;
+}
+
+html[data-theme="navy"] .hover\:bg-emerald-700:hover,
+html[data-theme="navy"] .hover\:bg-emerald-800:hover,
+html[data-theme="navy"] .hover\:bg-emerald-900:hover {
+  background-color: #1e40af !important;
+}
+
+html[data-theme="navy"] .bg-emerald-600,
+html[data-theme="navy"] .bg-emerald-500 {
+  background-color: #2563eb !important;
+}
+
+html[data-theme="navy"] .hover\:bg-emerald-600:hover,
+html[data-theme="navy"] .hover\:bg-emerald-500:hover {
+  background-color: #1d4ed8 !important;
+}
+
+html[data-theme="navy"] .bg-emerald-50,
+html[data-theme="navy"] .bg-emerald-50\/40,
+html[data-theme="navy"] .bg-emerald-50\/50,
+html[data-theme="navy"] .bg-emerald-50\/60,
+html[data-theme="navy"] .bg-emerald-50\/70,
+html[data-theme="navy"] .bg-emerald-50\/80 {
+  background-color: #eff6ff !important;
+}
+
+html[data-theme="navy"] .bg-emerald-100,
+html[data-theme="navy"] .bg-emerald-100\/80 {
+  background-color: #dbeafe !important;
+}
+
+html[data-theme="navy"] .hover\:bg-emerald-50\/60:hover,
+html[data-theme="navy"] .hover\:bg-emerald-50:hover {
+  background-color: #eff6ff !important;
+}
+
+html[data-theme="navy"] .text-emerald-950,
+html[data-theme="navy"] .text-emerald-900,
+html[data-theme="navy"] .text-emerald-800 {
+  color: #1e3a8a !important;
+}
+
+html[data-theme="navy"] .text-emerald-700,
+html[data-theme="navy"] .text-emerald-600 {
+  color: #2563eb !important;
+}
+
+html[data-theme="navy"] .text-emerald-500 {
+  color: #3b82f6 !important;
+}
+
+html[data-theme="navy"] .text-emerald-400,
+html[data-theme="navy"] .text-emerald-300,
+html[data-theme="navy"] .text-emerald-200,
+html[data-theme="navy"] .text-emerald-200\/90 {
+  color: #bfdbfe !important;
+}
+
+html[data-theme="navy"] .hover\:text-emerald-950:hover,
+html[data-theme="navy"] .hover\:text-emerald-900:hover,
+html[data-theme="navy"] .hover\:text-emerald-800:hover {
+  color: #172554 !important;
+}
+
+html[data-theme="navy"] .hover\:text-emerald-700:hover,
+html[data-theme="navy"] .hover\:text-emerald-600:hover {
+  color: #1d4ed8 !important;
+}
+
+html[data-theme="navy"] .border-emerald-100,
+html[data-theme="navy"] .border-emerald-200,
+html[data-theme="navy"] .border-emerald-200\/70,
+html[data-theme="navy"] .border-emerald-200\/80 {
+  border-color: #bfdbfe !important;
+}
+
+html[data-theme="navy"] .border-emerald-300,
+html[data-theme="navy"] .border-emerald-400 {
+  border-color: #93c5fd !important;
+}
+
+html[data-theme="navy"] .border-emerald-500,
+html[data-theme="navy"] .border-emerald-600 {
+  border-color: #2563eb !important;
+}
+
+html[data-theme="navy"] .ring-emerald-50 {
+  --tw-ring-color: #eff6ff !important;
+}
+
+html[data-theme="navy"] .ring-emerald-500\/20,
+html[data-theme="navy"] .ring-emerald-600 {
+  --tw-ring-color: rgba(37, 99, 235, 0.25) !important;
+}
+
+html[data-theme="navy"] .shadow-emerald-800\/25,
+html[data-theme="navy"] .shadow-emerald-900\/15,
+html[data-theme="navy"] .shadow-emerald-700\/20 {
+  --tw-shadow-color: rgba(30, 58, 138, 0.25) !important;
+}
+
+/* ==========================================================================
+   THEME 2: Warm Amber Heritage (data-theme="amber")
+   ========================================================================== */
+html[data-theme="amber"] body {
+  background-color: #faf7f2;
+}
+
+html[data-theme="amber"] .from-emerald-700,
+html[data-theme="amber"] .from-emerald-800 {
+  --tw-gradient-from: #b45309 var(--tw-gradient-from-position) !important;
+}
+html[data-theme="amber"] .via-emerald-800 {
+  --tw-gradient-via: #92400e var(--tw-gradient-via-position) !important;
+}
+html[data-theme="amber"] .to-teal-900,
+html[data-theme="amber"] .to-emerald-900 {
+  --tw-gradient-to: #451a03 var(--tw-gradient-to-position) !important;
+}
+
+html[data-theme="amber"] .bg-emerald-950,
+html[data-theme="amber"] .bg-emerald-900,
+html[data-theme="amber"] .bg-emerald-850,
+html[data-theme="amber"] .bg-emerald-800,
+html[data-theme="amber"] .bg-emerald-700 {
+  background-color: #92400e !important;
+}
+
+html[data-theme="amber"] .hover\:bg-emerald-700:hover,
+html[data-theme="amber"] .hover\:bg-emerald-800:hover,
+html[data-theme="amber"] .hover\:bg-emerald-900:hover {
+  background-color: #78350f !important;
+}
+
+html[data-theme="amber"] .bg-emerald-600,
+html[data-theme="amber"] .bg-emerald-500 {
+  background-color: #d97706 !important;
+}
+
+html[data-theme="amber"] .hover\:bg-emerald-600:hover,
+html[data-theme="amber"] .hover\:bg-emerald-500:hover {
+  background-color: #b45309 !important;
+}
+
+html[data-theme="amber"] .bg-emerald-50,
+html[data-theme="amber"] .bg-emerald-50\/40,
+html[data-theme="amber"] .bg-emerald-50\/50,
+html[data-theme="amber"] .bg-emerald-50\/60,
+html[data-theme="amber"] .bg-emerald-50\/70,
+html[data-theme="amber"] .bg-emerald-50\/80 {
+  background-color: #fffbeb !important;
+}
+
+html[data-theme="amber"] .bg-emerald-100,
+html[data-theme="amber"] .bg-emerald-100\/80 {
+  background-color: #fef3c7 !important;
+}
+
+html[data-theme="amber"] .hover\:bg-emerald-50\/60:hover,
+html[data-theme="amber"] .hover\:bg-emerald-50:hover {
+  background-color: #fffbeb !important;
+}
+
+html[data-theme="amber"] .text-emerald-950,
+html[data-theme="amber"] .text-emerald-900,
+html[data-theme="amber"] .text-emerald-800 {
+  color: #78350f !important;
+}
+
+html[data-theme="amber"] .text-emerald-700,
+html[data-theme="amber"] .text-emerald-600 {
+  color: #b45309 !important;
+}
+
+html[data-theme="amber"] .text-emerald-500 {
+  color: #d97706 !important;
+}
+
+html[data-theme="amber"] .text-emerald-400,
+html[data-theme="amber"] .text-emerald-300,
+html[data-theme="amber"] .text-emerald-200,
+html[data-theme="amber"] .text-emerald-200\/90 {
+  color: #fde68a !important;
+}
+
+html[data-theme="amber"] .hover\:text-emerald-950:hover,
+html[data-theme="amber"] .hover\:text-emerald-900:hover,
+html[data-theme="amber"] .hover\:text-emerald-800:hover {
+  color: #451a03 !important;
+}
+
+html[data-theme="amber"] .hover\:text-emerald-700:hover,
+html[data-theme="amber"] .hover\:text-emerald-600:hover {
+  color: #78350f !important;
+}
+
+html[data-theme="amber"] .border-emerald-100,
+html[data-theme="amber"] .border-emerald-200,
+html[data-theme="amber"] .border-emerald-200\/70,
+html[data-theme="amber"] .border-emerald-200\/80 {
+  border-color: #fde68a !important;
+}
+
+html[data-theme="amber"] .border-emerald-300,
+html[data-theme="amber"] .border-emerald-400 {
+  border-color: #fcd34d !important;
+}
+
+html[data-theme="amber"] .border-emerald-500,
+html[data-theme="amber"] .border-emerald-600 {
+  border-color: #d97706 !important;
+}
+
+html[data-theme="amber"] .ring-emerald-50 {
+  --tw-ring-color: #fffbeb !important;
+}
+
+html[data-theme="amber"] .ring-emerald-500\/20,
+html[data-theme="amber"] .ring-emerald-600 {
+  --tw-ring-color: rgba(217, 119, 6, 0.25) !important;
+}
+
+html[data-theme="amber"] .shadow-emerald-800\/25,
+html[data-theme="amber"] .shadow-emerald-900\/15,
+html[data-theme="amber"] .shadow-emerald-700\/20 {
+  --tw-shadow-color: rgba(146, 64, 14, 0.25) !important;
+}
+
+/* ==========================================================================
+   THEME 3: Dark Luxury (data-theme="dark" / html.dark)
+   ========================================================================== */
+html[data-theme="dark"],
+html.dark {
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] body,
+html.dark body {
+  background-color: #0b0f19 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Containers and Cards in Dark Mode */
+html[data-theme="dark"] .bg-white,
+html.dark .bg-white {
+  background-color: #131b2e !important;
+}
+
+html[data-theme="dark"] aside,
+html.dark aside,
+html[data-theme="dark"] header,
+html.dark header {
+  background-color: #0f172a !important;
+  border-color: #1e293b !important;
+}
+
+html[data-theme="dark"] .bg-slate-50,
+html[data-theme="dark"] .bg-slate-50\/40,
+html[data-theme="dark"] .bg-slate-50\/50,
+html[data-theme="dark"] .bg-slate-100,
+html[data-theme="dark"] .bg-slate-100\/80,
+html.dark .bg-slate-50,
+html.dark .bg-slate-50\/40,
+html.dark .bg-slate-50\/50,
+html.dark .bg-slate-100,
+html.dark .bg-slate-100\/80 {
+  background-color: #182234 !important;
+}
+
+/* Text Colors in Dark Mode */
+html[data-theme="dark"] .text-slate-900,
+html[data-theme="dark"] .text-slate-800,
+html.dark .text-slate-900,
+html.dark .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+html[data-theme="dark"] .text-slate-700,
+html[data-theme="dark"] .text-slate-600,
+html.dark .text-slate-700,
+html.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+html[data-theme="dark"] .text-slate-500,
+html[data-theme="dark"] .text-slate-400,
+html.dark .text-slate-500,
+html.dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+/* Borders in Dark Mode */
+html[data-theme="dark"] .border-slate-100,
+html[data-theme="dark"] .border-slate-200,
+html[data-theme="dark"] .border-slate-200\/60,
+html[data-theme="dark"] .border-slate-200\/70,
+html[data-theme="dark"] .border-slate-200\/80,
+html[data-theme="dark"] .border-slate-200\/90,
+html[data-theme="dark"] .border-slate-300,
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-200\/60,
+html.dark .border-slate-200\/70,
+html.dark .border-slate-200\/80,
+html.dark .border-slate-200\/90,
+html.dark .border-slate-300 {
+  border-color: #24324a !important;
+}
+
+/* Form Elements in Dark Mode */
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea,
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #0b1120 !important;
+  color: #f8fafc !important;
+  border-color: #2e3d55 !important;
+}
+
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder,
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Emerald Accents in Dark Mode (Glow rather than washed out) */
+html[data-theme="dark"] .bg-emerald-50,
+html[data-theme="dark"] .bg-emerald-50\/40,
+html[data-theme="dark"] .bg-emerald-50\/50,
+html[data-theme="dark"] .bg-emerald-50\/60,
+html[data-theme="dark"] .bg-emerald-50\/70,
+html[data-theme="dark"] .bg-emerald-50\/80,
+html.dark .bg-emerald-50,
+html.dark .bg-emerald-50\/40,
+html.dark .bg-emerald-50\/50,
+html.dark .bg-emerald-50\/60,
+html.dark .bg-emerald-50\/70,
+html.dark .bg-emerald-50\/80 {
+  background-color: rgba(6, 78, 59, 0.4) !important;
+}
+
+html[data-theme="dark"] .bg-emerald-100,
+html[data-theme="dark"] .bg-emerald-100\/80,
+html.dark .bg-emerald-100,
+html.dark .bg-emerald-100\/80 {
+  background-color: rgba(6, 95, 70, 0.5) !important;
+}
+
+html[data-theme="dark"] .text-emerald-950,
+html[data-theme="dark"] .text-emerald-900,
+html[data-theme="dark"] .text-emerald-800,
+html[data-theme="dark"] .text-emerald-700,
+html[data-theme="dark"] .text-emerald-600,
+html.dark .text-emerald-950,
+html.dark .text-emerald-900,
+html.dark .text-emerald-800,
+html.dark .text-emerald-700,
+html.dark .text-emerald-600 {
+  color: #34d399 !important;
+}
+
+html[data-theme="dark"] .border-emerald-100,
+html[data-theme="dark"] .border-emerald-200,
+html[data-theme="dark"] .border-emerald-200\/70,
+html.dark .border-emerald-100,
+html.dark .border-emerald-200,
+html.dark .border-emerald-200\/70 {
+  border-color: rgba(5, 150, 105, 0.35) !important;
+}
+
+html[data-theme="dark"] ::-webkit-scrollbar-thumb,
+html.dark ::-webkit-scrollbar-thumb {
+  background: #334155 !important;
+}
+
+/* Custom Scrollbar for modern dashboards */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Official Print Styles for A4 Reports */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 8mm 10mm 8mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 10pt !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  aside,
+  header,
+  nav,
+  .print\:hidden,
+  [data-print-hidden="true"] {
+    display: none !important;
+  }
+
+  /* CRITICAL: Overcome h-screen, overflow-hidden, and flex-1 containers that trap and clip pagination to 1 page */
+  #root,
+  #root > div,
+  .h-screen,
+  .overflow-hidden,
+  .overflow-auto,
+  .overflow-y-auto,
+  .overflow-x-auto,
+  .flex-1 {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    display: block !important;
+    flex: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    position: static !important;
+  }
+
+  main > div {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl, .shadow-2xs, .shadow-xs {
+    box-shadow: none !important;
+  }
+
+  .printable-report {
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    width: 100% !important;
+    overflow: visible !important;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
+

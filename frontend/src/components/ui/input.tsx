@@ -1,11 +1,19 @@
 import * as React from "react"
 import { cn } from "./button"
+import { convertArabicToEnglishNumbers } from "../../utils/quranHelpers"
 
 export interface InputProps
   extends React.InputHTMLAttributes<HTMLInputElement> {}
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, ...props }, ref) => {
+  ({ className, type, onChange, ...props }, ref) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target && typeof e.target.value === 'string' && /[٠-٩۰-۹]/.test(e.target.value)) {
+        e.target.value = convertArabicToEnglishNumbers(e.target.value);
+      }
+      onChange?.(e);
+    };
+
     return (
       <input
         type={type}
@@ -14,6 +22,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           className
         )}
         ref={ref}
+        onChange={handleChange}
         {...props}
       />
     )

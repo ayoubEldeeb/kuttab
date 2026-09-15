@@ -1,67 +1,93 @@
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useParams, Link } from 'react-router-dom';
+import { 
+  ArrowRight, 
+  BookOpen, 
+  Phone, 
+  User, 
+  Activity, 
+  Edit2, 
+  X, 
+  Check, 
+  Repeat, 
+  Send,
+  CalendarCheck,
+  FastForward,
+  Plus,
+  Trash2,
+  Layers,
+  CheckCircle2,
+  MessageSquare,
+  FileText,
+  Printer,
+  Scroll,
+  BookMarked,
+  Info,
+  AlertCircle
+} from 'lucide-react';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { format, subDays, isSameDay } from 'date-fns';
+import { ar } from 'date-fns/locale';
+import toast from 'react-hot-toast';
+import { QuranSelector, SURAHS } from '../components/ui/quran-selector';
 import { formatPart } from '../utils/formatPart';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import axios from 'axios'
-import { useParams, Link } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import { Button } from '../components/ui/button'
-import { Input } from '../components/ui/input'
-import { format, subDays, isSameDay } from 'date-fns'
-import { ar } from 'date-fns/locale'
-import toast from 'react-hot-toast'
-import { ArrowRight, Book, Phone, User, Calendar, Target, Activity, Edit2, X, Check, Repeat } from 'lucide-react'
-import { QuranSelector } from '../components/ui/quran-selector'
+import { getNextThumn, convertArabicToEnglishNumbers } from '../utils/quranHelpers';
+import { getQuranStage } from '../utils/quranStages';
+import { shouldShowRecitation, shouldShowWriting } from './DailyLog';
+import api from '../utils/api';
+import { useThemeAndSettings } from '../context/ThemeAndSettingsContext';
 
 const STATUS_OPTIONS = [
-  "لم يحضر",
-  "عرض ولم يحفظ",
   "عرض وحفظ وكتب",
   "عرض وحفظ ولم يكتب",
-  "كتب فقط"
-]
+  "كتب فقط",
+  "عرض ولم يحفظ",
+  "لم يحضر"
+];
 
 const STATUS_COLORS: Record<string, string> = {
-  "لم يحضر": "bg-red-100 text-red-700",
-  "عرض ولم يحفظ": "bg-orange-100 text-orange-700",
-  "عرض وحفظ ولم يكتب": "bg-blue-100 text-blue-700",
-  "عرض وحفظ وكتب": "bg-green-100 text-green-700",
-  "كتب فقط": "bg-purple-100 text-purple-700",
-  "حفظ": "bg-green-100 text-green-700",
-  "لم يحفظ": "bg-red-100 text-red-700"
-}
+  "لم يحضر": "bg-rose-50 text-rose-700 border-rose-200",
+  "عرض ولم يحفظ": "bg-amber-50 text-amber-700 border-amber-200",
+  "عرض وحفظ ولم يكتب": "bg-teal-50 text-teal-700 border-teal-200",
+  "عرض وحفظ وكتب": "bg-emerald-50 text-emerald-800 border-emerald-200 font-bold",
+  "كتب فقط": "bg-purple-50 text-purple-700 border-purple-200",
+  "حفظ": "bg-emerald-50 text-emerald-800 border-emerald-200 font-bold",
+  "لم يحفظ": "bg-rose-50 text-rose-700 border-rose-200"
+};
 
 export default function StudentProfile() {
-  const { id } = useParams()
-  const queryClient = useQueryClient()
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const { id } = useParams();
+  const queryClient = useQueryClient();
+  const { activeSheikh, isHoliday, getHolidayInfo } = useThemeAndSettings();
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [formData, setFormData] = useState({
-    status: STATUS_OPTIONS[1],
-    type: 'تسميع',
+    status: STATUS_OPTIONS[0], // "عرض وحفظ وكتب"
     fromPart: '',
     toPart: '',
-    nextReviewDate: '',
-    nextReviewFrom: '',
-    nextReviewTo: '',
-    nextReviewNotes: '',
+    recitedAthman: [] as string[],
     notes: '',
     writtenParts: [] as string[]
-  })
+  });
+  const [writingMode, setWritingMode] = useState<'thumn' | 'ayah'>('thumn');
+  const [ayahInput, setAyahInput] = useState({ surah: 'النبأ', count: '5', fromAyah: '1', toAyah: '5' });
   
   // Edit State
-  const [isEditing, setIsEditing] = useState(false)
+  const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({ 
     name: '', guardianName: '', guardianPhone: '', 
     currentReach: '', currentRevisionFrom: '', currentRevisionTo: '' 
-  })
+  });
 
   const { data: student, isLoading } = useQuery({
     queryKey: ['student', id],
     queryFn: async () => {
-      const res = await axios.get(`http://localhost:39281/students/${id}`)
-      return res.data
+      const res = await api.get(`/students/${id}`);
+      return res.data;
     }
-  })
+  });
 
-  // Initialize edit form when student data loads or edit mode triggers
   useEffect(() => {
     if (student && isEditing) {
       setEditForm({
@@ -71,516 +97,1019 @@ export default function StudentProfile() {
         currentReach: student.currentReach || '',
         currentRevisionFrom: student.currentRevisionFrom || '',
         currentRevisionTo: student.currentRevisionTo || ''
-      })
+      });
     }
-  }, [student, isEditing])
+  }, [student, isEditing]);
+
+  // When student loads, initialize inline form
+  useEffect(() => {
+    if (student) {
+      // Find previous written parts
+      let previousWritten: string[] = [];
+      const pastWritten = student.histories?.find((h: any) => h.writtenParts);
+      if (pastWritten?.writtenParts) {
+        try {
+          const parsed = JSON.parse(pastWritten.writtenParts);
+          if (Array.isArray(parsed) && parsed.length > 0) previousWritten = parsed;
+        } catch {}
+      }
+
+      const initialFrom = previousWritten[0] || (student.currentReach ? getNextThumn(student.currentReach) : '');
+      const initialTo = previousWritten.length > 0 ? previousWritten[previousWritten.length - 1] : initialFrom;
+      const initialAthman = previousWritten.length > 0 ? previousWritten : (initialFrom ? [initialFrom] : ['']);
+      const nextToWrite = initialTo ? getNextThumn(initialTo) : '';
+
+      setFormData({
+        status: STATUS_OPTIONS[0],
+        fromPart: initialFrom,
+        toPart: initialTo,
+        recitedAthman: initialAthman,
+        writtenParts: nextToWrite ? [nextToWrite] : [''],
+        notes: ''
+      });
+    }
+  }, [student]);
 
   const addHistoryMutation = useMutation({
     mutationFn: async (data: any) => {
-      await axios.post(`http://localhost:39281/students/${id}/history`, data)
+      await api.post(`/students/${id}/history`, data);
     },
     onSuccess: () => {
-      toast.success('تم تسجيل المتابعة بنجاح')
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
+      toast.success('تم تسجيل المتابعة بنجاح');
+      queryClient.invalidateQueries({ queryKey: ['student', id] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       setFormData(prev => ({
         ...prev,
-        fromPart: '', toPart: '', nextReviewFrom: '', nextReviewTo: '', notes: '', writtenParts: []
-      }))
+        notes: '',
+      }));
+    },
+    onError: () => {
+      toast.error('حدث خطأ أثناء تسجيل المتابعة');
     }
-  })
+  });
 
   const updateStudentMutation = useMutation({
     mutationFn: async (data: any) => {
-      await axios.put(`http://localhost:39281/students/${id}`, data)
+      await api.put(`/students/${id}`, data);
     },
     onSuccess: () => {
-      toast.success('تم تحديث بيانات الطالب بنجاح')
-      queryClient.invalidateQueries({ queryKey: ['student', id] })
-      setIsEditing(false)
+      toast.success('تم تحديث بيانات الطالب بنجاح');
+      queryClient.invalidateQueries({ queryKey: ['student', id] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      setIsEditing(false);
+    },
+    onError: () => {
+      toast.error('حدث خطأ أثناء تحديث بيانات الطالب');
     }
-  })
+  });
 
-  if (isLoading) return <div className="text-center py-20 text-gray-500">جاري تحميل بيانات الطالب...</div>
-  if (!student) return <div className="text-center py-20 text-red-500">الطالب غير موجود</div>
-
-  // Generate last 14 days for activity heatmap
-  const last14Days = Array.from({ length: 14 }, (_, i) => subDays(new Date(), 13 - i))
-  
-  const getActivityColor = (day: Date) => {
-    const historyForDay = student.histories.find((h: any) => isSameDay(new Date(h.date), day))
-    if (!historyForDay) return 'bg-gray-100 text-gray-400'
-    return historyForDay.status === 'لم يحضر' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-slate-400 space-y-3">
+        <div className="w-10 h-10 border-3 border-emerald-700 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-sm font-bold">جاري تحميل ملف الطالب...</p>
+      </div>
+    );
   }
 
-  return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
-        <Link to="/students" className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-gray-100 text-gray-500 transition-colors">
-          <ArrowRight size={20} />
+  if (!student) {
+    return (
+      <div className="text-center py-24 space-y-4">
+        <div className="text-rose-500 font-black text-lg">لم يتم العثور على ملف الطالب</div>
+        <Link to="/students" className="inline-flex items-center gap-2 text-emerald-700 font-bold text-sm hover:underline">
+          <ArrowRight size={16} />
+          <span>الرجوع لدليل الطلاب</span>
         </Link>
-        <h2 className="text-xl font-bold text-gray-900">ملف الطالب</h2>
+      </div>
+    );
+  }
+
+  // Activity Heatmap
+  const last14Days = Array.from({ length: 14 }, (_, i) => subDays(new Date(), 13 - i));
+  
+  const getActivityColor = (day: Date) => {
+    const historyForDay = student.histories.find((h: any) => isSameDay(new Date(h.date), day));
+    if (historyForDay) {
+      return historyForDay.status === 'لم يحضر' 
+        ? 'bg-rose-100 text-rose-700 border border-rose-200' 
+        : 'bg-emerald-600 text-white font-bold shadow-xs';
+    }
+    if (isHoliday(day)) {
+      return 'bg-amber-100/90 text-amber-900 border border-amber-300 font-bold';
+    }
+    return 'bg-slate-100 text-slate-400 border border-slate-200/60';
+  };
+
+  // Student Attendance stats
+  const totalSessions = student.histories.length;
+  const attendedSessions = student.histories.filter((h: any) => h.status !== 'لم يحضر').length;
+  const attendanceRate = totalSessions > 0 ? Math.round((attendedSessions / totalSessions) * 100) : 100;
+  const stage = getQuranStage(student.currentReach);
+
+  const shareReportViaWhatsapp = () => {
+    if (!student.guardianPhone) {
+      toast.error('لا يوجد رقم هاتف مسجل لولي الأمر');
+      return;
+    }
+    const cleanPhone = student.guardianPhone.replace(/\D/g, '');
+    const latestHistory = student.histories[0];
+
+    let text = `السلام عليكم ورحمة الله وبركاته،\nولي أمر الطالب/ة: *${student.name}*\nتحية طيبة من إدارة حلقات تحفيظ القرآن الكريم.\n\n`;
+    if (activeSheikh?.name) {
+      text += `👤 *المشرف على الحلقة:* ${activeSheikh.name}\n`;
+    }
+    text += `📊 *تقرير المتابعة والتقدم الحالي:*\n`;
+    text += `📖 *المرحلة القرآنية:* ${stage}\n`;
+    text += `📌 *آخر موضع محفوظ:* ${formatPart(student.currentReach) || 'بداية المصحف'}\n`;
+    if (student.currentRevisionFrom || student.currentRevisionTo) {
+      text += `🔁 *ورد المراجعة:* من ${formatPart(student.currentRevisionFrom)} إلى ${formatPart(student.currentRevisionTo)}\n`;
+    }
+    text += `📈 *نسبة الحضور والالتزام:* ${attendanceRate}% (${attendedSessions} من ${totalSessions} جلسة)\n`;
+
+    if (latestHistory) {
+      text += `\n📝 *آخر جلسة مسجلة (${format(new Date(latestHistory.date), 'dd/MM/yyyy')}):* ${latestHistory.status}\n`;
+      if (latestHistory.fromPart || latestHistory.toPart) {
+        text += `• ما تم تسميعه: من ${formatPart(latestHistory.fromPart)} إلى ${formatPart(latestHistory.toPart)}\n`;
+      }
+      if (latestHistory.writtenParts) {
+        try {
+          const wp = JSON.parse(latestHistory.writtenParts);
+          if (wp.length > 0 && wp[0]) {
+            text += `• المكتوب في اللوح: ${wp.map((p: string) => formatPart(p)).join('، ')}\n`;
+          }
+        } catch {}
+      }
+      if (latestHistory.notes) {
+        text += `• ملاحظات المعلم: ${latestHistory.notes}\n`;
+      }
+    }
+    text += `\nنسأل الله له التوفيق والثبات والبركة في حفظ كتابه الكريم.`;
+
+    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
+  const openDirectWhatsapp = () => {
+    if (!student.guardianPhone) {
+      toast.error('لا يوجد رقم هاتف مسجل لولي الأمر');
+      return;
+    }
+    const cleanPhone = student.guardianPhone.replace(/\D/g, '');
+    const text = `السلام عليكم ورحمة الله وبركاته،\nتحية طيبة من إدارة حلقات تحفيظ القرآن الكريم بخصوص الطالب/ة: *${student.name}*.`;
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const handleNextRecitation = () => {
+    const last = formData.recitedAthman[formData.recitedAthman.length - 1] || formData.toPart || formData.fromPart || student.currentReach;
+    const next = getNextThumn(last);
+    const updated = [...formData.recitedAthman, next];
+    setFormData(prev => ({
+      ...prev,
+      recitedAthman: updated,
+      fromPart: updated[0],
+      toPart: next,
+      writtenParts: [getNextThumn(next)]
+    }));
+    toast.success(`تم اختيار: ${formatPart(next)}`);
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500 max-w-7xl mx-auto pb-20">
+      {/* Top Header Card with Profile and Actions */}
+      <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <Link 
+            to="/students" 
+            className="w-11 h-11 flex items-center justify-center rounded-2xl hover:bg-slate-100 text-slate-500 transition-colors border border-slate-200 shrink-0"
+            title="الرجوع لدليل الطلاب"
+          >
+            <ArrowRight size={20} />
+          </Link>
+
+          <div className="w-16 h-16 bg-gradient-to-br from-emerald-700 to-teal-900 text-white rounded-2xl flex items-center justify-center text-2xl font-black shadow-md shadow-emerald-800/20 ring-4 ring-emerald-50 shrink-0">
+            {student.name.substring(0, 1)}
+          </div>
+
+          <div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h2 className="text-2xl font-black text-slate-900 font-heading">{student.name}</h2>
+              <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-xl text-xs font-mono font-bold border border-slate-200">
+                {student.serialNumber}
+              </span>
+              <span className="bg-emerald-100/90 text-emerald-900 text-xs font-black px-3 py-1 rounded-full border border-emerald-200 inline-flex items-center gap-1.5">
+                <Layers size={13} className="text-emerald-700" />
+                <span>{stage}</span>
+              </span>
+            </div>
+            <p className="text-slate-400 text-xs mt-1">
+              تاريخ التسجيل: {format(new Date(student.createdAt), 'dd MMMM yyyy', { locale: ar })}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          {student.guardianPhone && (
+            <>
+              <button
+                onClick={openDirectWhatsapp}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-800 text-xs font-bold border border-slate-200 hover:border-emerald-300 transition-all active:scale-95 cursor-pointer"
+                title="محادثة واتساب سريعة"
+              >
+                <MessageSquare size={15} className="text-emerald-600" />
+                <span>محادثة ولي الأمر</span>
+              </button>
+
+              <button
+                onClick={shareReportViaWhatsapp}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-700/20 transition-all active:scale-95 cursor-pointer"
+                title="إرسال تقرير المتابعة والتقدم عبر واتساب"
+              >
+                <Send size={14} />
+                <span>إرسال تقرير المتابعة</span>
+              </button>
+            </>
+          )}
+
+          <Link
+            to={`/students/${id}/report`}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-teal-800 hover:bg-teal-900 text-white text-xs font-bold shadow-md shadow-teal-800/20 transition-all active:scale-95"
+            title="فتح وطباعة تقرير المتابعة الشامل لولي الأمر"
+          >
+            <Printer size={15} />
+            <span>تقرير ولي الأمر (طباعة)</span>
+          </Link>
+
+          <button 
+            onClick={() => setIsEditing(!isEditing)}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold border transition-all cursor-pointer ${
+              isEditing 
+                ? 'bg-slate-900 text-white border-slate-900' 
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <Edit2 size={14} />
+            <span>{isEditing ? 'إغلاق التعديل' : 'تعديل البيانات'}</span>
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Right Column (Info Card) */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col relative">
-            
-            {/* Edit / Save Buttons */}
-            <div className="absolute left-6 top-6">
-              {!isEditing ? (
-                <button 
-                  onClick={() => setIsEditing(true)}
-                  className="w-8 h-8 rounded-full bg-gray-50 text-gray-500 hover:bg-primary/10 hover:text-primary flex items-center justify-center transition-colors"
-                  title="تعديل البيانات"
-                >
-                  <Edit2 size={16} />
-                </button>
-              ) : (
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => updateStudentMutation.mutate(editForm)}
-                    disabled={updateStudentMutation.isPending}
-                    className="w-8 h-8 rounded-full bg-green-50 text-green-600 hover:bg-green-100 flex items-center justify-center transition-colors disabled:opacity-50"
-                    title="حفظ"
-                  >
-                    <Check size={16} />
-                  </button>
-                  <button 
-                    onClick={() => setIsEditing(false)}
-                    className="w-8 h-8 rounded-full bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center transition-colors"
-                    title="إلغاء"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              )}
+      {/* Edit Student Info Card (Active when isEditing) */}
+      {isEditing && (
+        <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border-2 border-emerald-600/30 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                <Edit2 size={16} />
+              </div>
+              <h3 className="text-base font-black text-slate-900 font-heading">تعديل بيانات الطالب والمقررات</h3>
+            </div>
+            <button 
+              onClick={() => setIsEditing(false)}
+              className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">اسم الطالب الرباعي</label>
+              <Input 
+                value={editForm.name}
+                onChange={e => setEditForm({...editForm, name: e.target.value})}
+                className="h-11 rounded-2xl bg-slate-50 text-xs font-bold"
+                placeholder="اسم الطالب"
+              />
             </div>
 
-            <div className="flex flex-col items-center text-center pb-6 border-b border-gray-200">
-              <div className="w-24 h-24 bg-primary/10 text-primary rounded-3xl flex items-center justify-center text-3xl font-bold mb-4 shadow-sm">
-                {student.name.substring(0, 1)}
-              </div>
-              
-              {!isEditing ? (
-                <>
-                  <div className="font-bold text-gray-900 text-xl">{student.name}</div>
-                  <div className="bg-gray-100 text-gray-600 px-3 py-1 rounded-lg text-sm font-medium mt-2">{student.serialNumber}</div>
-                </>
-              ) : (
-                <div className="w-full space-y-2 px-2 mt-2">
-                  <label className="text-xs text-gray-500 block text-right">اسم الطالب</label>
-                  <Input 
-                    value={editForm.name}
-                    onChange={e => setEditForm({...editForm, name: e.target.value})}
-                    className="h-10 text-center font-bold"
-                  />
-                  <div className="bg-gray-100 text-gray-500 px-3 py-1 rounded-lg text-sm font-medium mx-auto w-fit mt-1">{student.serialNumber}</div>
-                </div>
-              )}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">اسم ولي الأمر</label>
+              <Input 
+                value={editForm.guardianName}
+                onChange={e => setEditForm({...editForm, guardianName: e.target.value})}
+                className="h-11 rounded-2xl bg-slate-50 text-xs font-bold"
+                placeholder="اسم ولي الأمر"
+              />
             </div>
 
-            <div className="pt-6 space-y-5">
-              <div className="flex items-center gap-3 text-gray-600">
-                <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400">
-                  <User size={18} />
-                </div>
-                <div className="flex-1">
-                  <div className="text-xs text-gray-400 font-medium">ولي الأمر</div>
-                  {!isEditing ? (
-                    <div className="font-semibold text-gray-900">{student.guardianName || 'غير محدد'}</div>
-                  ) : (
-                    <Input 
-                      value={editForm.guardianName}
-                      onChange={e => setEditForm({...editForm, guardianName: e.target.value})}
-                      className="h-8 mt-1 text-sm"
-                      placeholder="اسم ولي الأمر"
-                    />
-                  )}
-                </div>
-              </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">رقم هاتف ولي الأمر (واتساب)</label>
+              <Input 
+                value={editForm.guardianPhone}
+                onChange={e => setEditForm({...editForm, guardianPhone: e.target.value})}
+                className="h-11 rounded-2xl bg-slate-50 text-xs font-bold text-right"
+                placeholder="09xxxxxxxx"
+                dir="ltr"
+              />
+            </div>
+          </div>
 
-              <div className="flex items-center gap-3 text-gray-600">
-                <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400">
-                  <Phone size={18} />
-                </div>
-                <div className="flex-1">
-                  <div className="text-xs text-gray-400 font-medium">رقم الهاتف</div>
-                  {!isEditing ? (
-                    <div className="font-semibold text-gray-900" dir="ltr">{student.guardianPhone || 'غير محدد'}</div>
-                  ) : (
-                    <Input 
-                      value={editForm.guardianPhone}
-                      onChange={e => setEditForm({...editForm, guardianPhone: e.target.value})}
-                      className="h-8 mt-1 text-sm text-right"
-                      placeholder="رقم الهاتف"
-                      dir="ltr"
-                    />
-                  )}
-                </div>
-              </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">آخر موضع محفوظ (المستوى الحالي)</label>
+              <QuranSelector 
+                value={editForm.currentReach}
+                onChange={val => setEditForm({...editForm, currentReach: val})}
+                placeholder="حدد آخر موضع محفوظ..."
+                className="text-xs"
+              />
+            </div>
 
-              <div className="flex items-center gap-3 text-gray-600">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-                  <Book size={18} />
-                </div>
-                <div className="flex-1">
-                  <div className="text-xs text-gray-400 font-medium">مستوى الحفظ الحالي</div>
-                  {!isEditing ? (
-                    <div className="font-bold text-primary text-sm leading-tight mt-1">
-                      {student.currentReach 
-                        ? (student.currentReach.includes('|') 
-                            ? `سورة ${student.currentReach.match(/\| سورة ([^\(]+)/)?.[1]?.trim() || ''} - ${student.currentReach.replace(/ \| سورة [^\(]+/, '').trim()}` 
-                            : student.currentReach) 
-                        : 'غير محدد'}
-                    </div>
-                  ) : (
-                    <div className="mt-2 -mx-8 w-[calc(100%+4rem)] sm:mx-0 sm:w-full">
-                      <QuranSelector 
-                        value={editForm.currentReach}
-                        onChange={val => setEditForm({...editForm, currentReach: val})}
-                        className="text-sm"
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">ورد المراجعة: من موضع</label>
+              <QuranSelector 
+                value={editForm.currentRevisionFrom}
+                onChange={val => setEditForm({...editForm, currentRevisionFrom: val})}
+                placeholder="من موضع..."
+                className="text-xs"
+              />
+            </div>
 
-              <div className="flex items-center gap-3 text-gray-600">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 flex items-center justify-center">
-                  <Repeat size={18} />
-                </div>
-                <div className="flex-1">
-                  <div className="text-xs text-gray-400 font-medium">ورد المراجعة الحالي</div>
-                  {!isEditing ? (
-                    <div className="font-bold text-blue-600 text-sm leading-tight mt-1">
-                      {student.currentRevisionFrom || student.currentRevisionTo ? (
-                        <>
-                          <div className="truncate">من: {student.currentRevisionFrom ? (student.currentRevisionFrom.includes('|') ? student.currentRevisionFrom.replace(/ \| سورة [^\(]+/, '').trim() : student.currentRevisionFrom) : '-'}</div>
-                          <div className="truncate mt-1">إلى: {student.currentRevisionTo ? (student.currentRevisionTo.includes('|') ? student.currentRevisionTo.replace(/ \| سورة [^\(]+/, '').trim() : student.currentRevisionTo) : '-'}</div>
-                        </>
-                      ) : 'غير محدد'}
-                    </div>
-                  ) : (
-                    <div className="mt-2 -mx-8 w-[calc(100%+4rem)] sm:mx-0 sm:w-full space-y-2">
-                      <QuranSelector 
-                        value={editForm.currentRevisionFrom}
-                        onChange={val => setEditForm({...editForm, currentRevisionFrom: val})}
-                        className="text-sm z-20"
-                        placeholder="من موضع..."
-                      />
-                      <QuranSelector 
-                        value={editForm.currentRevisionTo}
-                        onChange={val => setEditForm({...editForm, currentRevisionTo: val})}
-                        className="text-sm z-10"
-                        placeholder="إلى موضع..."
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">ورد المراجعة: إلى موضع</label>
+              <QuranSelector 
+                value={editForm.currentRevisionTo}
+                onChange={val => setEditForm({...editForm, currentRevisionTo: val})}
+                placeholder="إلى موضع..."
+                className="text-xs"
+              />
+            </div>
+          </div>
 
-              <div className="flex items-center gap-3 text-gray-600">
-                <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center text-gray-400">
-                  <Calendar size={18} />
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 font-medium">تاريخ التسجيل</div>
-                  <div className="font-semibold text-gray-900">{format(new Date(student.createdAt), 'dd MMMM yyyy', { locale: ar })}</div>
-                </div>
-              </div>
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+            <button
+              onClick={() => setIsEditing(false)}
+              className="px-5 py-2.5 rounded-2xl bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs font-bold transition-all cursor-pointer"
+            >
+              إلغاء
+            </button>
+            <Button
+              onClick={() => updateStudentMutation.mutate(editForm)}
+              disabled={updateStudentMutation.isPending}
+              className="px-6 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-md shadow-emerald-700/20 cursor-pointer"
+            >
+              <Check size={15} className="mr-1" />
+              <span>{updateStudentMutation.isPending ? 'جاري الحفظ...' : 'حفظ التعديلات'}</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 4 Executive KPI Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Current Quranic Level */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200/80 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-slate-400">آخر موضع محفوظ</span>
+            <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+              <BookOpen size={18} />
+            </div>
+          </div>
+          <div>
+            <div className="text-base font-black text-slate-900 leading-snug line-clamp-2">
+              {student.currentReach ? formatPart(student.currentReach) : 'بداية المصحف'}
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-800 text-[11px] font-bold mt-2 border border-emerald-200/60">
+              <Layers size={11} />
+              <span>المرحلة: {stage}</span>
             </div>
           </div>
         </div>
 
-        {/* Left Column (Forms & Lists) */}
-        <div className="lg:col-span-2 space-y-6">
-          
-          {/* Heatmap */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-            <div className="flex items-center gap-2 mb-4">
-              <Activity className="text-primary" size={20} />
-              <h3 className="font-bold text-gray-900">مؤشر النشاط (آخر 14 يوم)</h3>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide" dir="ltr">
-              {last14Days.map((day, i) => (
-                <div key={i} className="flex flex-col items-center gap-1 min-w-[36px]">
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shadow-sm ${getActivityColor(day)}`}>
-                    {format(day, 'd')}
-                  </div>
-                  <span className="text-[10px] text-gray-400 font-medium">{format(day, 'EEEEEE', { locale: ar })}</span>
-                </div>
-              ))}
+        {/* Card 2: Revision Range */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200/80 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-slate-400">ورد المراجعة الحالي</span>
+            <div className="w-9 h-9 rounded-2xl bg-teal-50 text-teal-700 flex items-center justify-center">
+              <Repeat size={18} />
             </div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            {/* Add History Form */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col h-fit">
-              <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-4">
-                <Target className="text-primary" size={20} />
-                <h3 className="font-bold text-gray-900 text-lg">تسجيل متابعة</h3>
+          <div>
+            {student.currentRevisionFrom || student.currentRevisionTo ? (
+              <div className="space-y-1">
+                <div className="text-xs font-bold text-slate-800 truncate">
+                  <span className="text-slate-400 text-[11px] font-medium ml-1">من:</span>
+                  {student.currentRevisionFrom ? formatPart(student.currentRevisionFrom) : '-'}
+                </div>
+                <div className="text-xs font-bold text-teal-800 truncate">
+                  <span className="text-slate-400 text-[11px] font-medium ml-1">إلى:</span>
+                  {student.currentRevisionTo ? formatPart(student.currentRevisionTo) : '-'}
+                </div>
               </div>
-              
-              <div className="space-y-5">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">التاريخ</label>
-                  <Input 
-                    type="date" 
-                    value={date} 
-                    onChange={e => setDate(e.target.value)} 
-                    className="h-12 rounded-xl"
-                  />
+            ) : (
+              <div className="text-xs font-bold text-slate-400 italic">غير محدد بعد</div>
+            )}
+            <div className="text-[11px] text-slate-400 font-medium mt-2">
+              متابعة التثبيت من قسم سجل المراجعة
+            </div>
+          </div>
+        </div>
+
+        {/* Card 3: Attendance Rate */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200/80 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-slate-400">نسبة الحضور والالتزام</span>
+            <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+              <CalendarCheck size={18} />
+            </div>
+          </div>
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-black text-slate-900 font-heading">{attendanceRate}%</span>
+              <span className="text-[11px] text-slate-500 font-bold">
+                ({attendedSessions} من أصل {totalSessions} جلسة)
+              </span>
+            </div>
+            {/* Progress Bar */}
+            <div className="w-full bg-slate-100 rounded-full h-2 mt-2.5 overflow-hidden">
+              <div 
+                className="bg-emerald-600 h-2 rounded-full transition-all duration-500" 
+                style={{ width: `${attendanceRate}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 4: Guardian Contact */}
+        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200/80 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-slate-400">بيانات ولي الأمر</span>
+            <div className="w-9 h-9 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center">
+              <User size={18} />
+            </div>
+          </div>
+          <div>
+            <div className="text-sm font-black text-slate-900 truncate">
+              {student.guardianName || 'غير مسجل'}
+            </div>
+            {student.guardianPhone ? (
+              <a
+                href={`https://wa.me/${student.guardianPhone.replace(/\D/g, '')}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-mono font-bold text-emerald-700 hover:text-emerald-800 hover:underline mt-1.5"
+                dir="ltr"
+              >
+                <Phone size={12} />
+                <span>{student.guardianPhone}</span>
+              </a>
+            ) : (
+              <div className="text-xs text-slate-400 mt-1">لا يوجد رقم هاتف</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Attendance & Activity Heatmap (Last 14 Days) */}
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200/80 space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Activity className="text-emerald-700" size={18} />
+            <h3 className="font-bold text-slate-900 text-sm">مؤشر الحضور والنشاط (آخر 14 يوماً)</h3>
+          </div>
+          <div className="flex items-center gap-4 text-[11px] font-bold text-slate-500">
+            <div className="flex items-center gap-1.5">
+              <div className="w-3.5 h-3.5 rounded-md bg-emerald-600"></div>
+              <span>حضر وسمّع</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3.5 h-3.5 rounded-md bg-rose-100 border border-rose-300"></div>
+              <span>غائب (لم يحضر)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3.5 h-3.5 rounded-md bg-amber-100 border border-amber-300"></div>
+              <span>عطلة أسبوعية</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3.5 h-3.5 rounded-md bg-slate-100 border border-slate-200"></div>
+              <span>لا توجد جلسة</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2.5 overflow-x-auto pb-1 pt-1" dir="ltr">
+          {last14Days.map((day, i) => (
+            <div key={i} className="flex flex-col items-center gap-1.5 flex-1 min-w-[42px]">
+              <div className={`w-full h-11 rounded-2xl flex items-center justify-center text-xs font-bold transition-all ${getActivityColor(day)}`}>
+                {format(day, 'd')}
+              </div>
+              <span className="text-[10px] text-slate-400 font-bold">
+                {format(day, 'EEE', { locale: ar })}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Spacious 2-Column Work Area: Today's Session & History */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Column 1: Record Today's Session (7 cols) */}
+        <div className="lg:col-span-7 bg-white p-6 md:p-7 rounded-3xl shadow-sm border border-slate-200/80 space-y-5">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                <CheckCircle2 size={20} />
+              </div>
+              <div>
+                <h3 className="font-black text-slate-900 text-base font-heading">تسجيل حلقة اليوم</h3>
+                <p className="text-xs text-slate-400">توثيق ما تم تسميعه وما تم كتابته في اللوح</p>
+              </div>
+            </div>
+            <span className="text-xs font-mono font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-xl border border-emerald-200/60">
+              {format(new Date(date), 'yyyy-MM-dd')}
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            {(() => {
+              const hInfo = getHolidayInfo(new Date(date));
+              if (!hInfo.isHoliday) return null;
+              return (
+                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">📅</span>
+                    <span>
+                      تنبيه: هذا اليوم مصنف كـ «{hInfo.holidayName || 'عطلة رسمية'}» في النظام
+                      {hInfo.holidayReason ? ` (السبب: ${hInfo.holidayReason})` : ''}. لن يؤثر الغياب سلباً على نسبة حضور الطالب.
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold bg-amber-200/90 text-amber-950 px-2.5 py-0.5 rounded-md shrink-0">
+                    {hInfo.holidayName || 'عطلة رسمية'}
+                  </span>
                 </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">التقييم</label>
-                  <select 
-                    className="w-full h-12 rounded-xl border-gray-200 bg-white px-3 focus:ring-2 focus:ring-primary focus:border-transparent outline-none border mb-4"
-                    value={formData.status}
-                    onChange={e => setFormData({...formData, status: e.target.value})}
-                  >
-                    {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                </div>
+              );
+            })()}
 
-                {formData.status !== 'لم يحضر' && (
-                  <>
-                    <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-100 space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-3">نوع التسميع</label>
-                        <div className="flex gap-4">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input 
-                              type="radio" 
-                              checked={formData.type === 'تسميع'}
-                              onChange={() => setFormData({...formData, type: 'تسميع'})}
-                              className="text-primary w-4 h-4"
-                            />
-                            <span className="text-sm font-bold">تسميع (جديد)</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input 
-                              type="radio" 
-                              checked={formData.type === 'مراجعة'}
-                              onChange={() => setFormData({...formData, type: 'مراجعة'})}
-                              className="text-primary w-4 h-4"
-                            />
-                            <span className="text-sm font-bold">مراجعة</span>
-                          </label>
-                        </div>
-                      </div>
+            {/* Date & Status */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">تاريخ الجلسة</label>
+                <Input 
+                  type="date" 
+                  value={date} 
+                  onChange={e => setDate(e.target.value)} 
+                  className="h-11 rounded-2xl bg-slate-50 text-xs font-bold"
+                />
+              </div>
 
-                      <div className="space-y-3">
-                        <label className="block text-sm font-medium text-gray-700">المقدار (من - إلى)</label>
-                        <QuranSelector 
-                          value={formData.fromPart}
-                          onChange={val => setFormData({...formData, fromPart: val})}
-                          placeholder="من موضع..."
-                          className="z-50"
-                        />
-                        <QuranSelector 
-                          value={formData.toPart}
-                          onChange={val => setFormData({...formData, toPart: val})}
-                          placeholder="إلى موضع..."
-                          className="z-40"
-                        />
-                      </div>
-
-                      {formData.status.includes('كتب') && (
-                        <div className="space-y-3 pt-4 border-t border-gray-200">
-                          <div className="flex justify-between items-center">
-                            <label className="block text-sm font-medium text-gray-700">ما تم كتابته</label>
-                            <button 
-                              onClick={() => setFormData({...formData, writtenParts: [...formData.writtenParts, '']})}
-                              className="text-xs text-primary bg-primary/10 hover:bg-primary/20 px-2 py-1 rounded-md transition-colors"
-                            >
-                              + إضافة ثمن
-                            </button>
-                          </div>
-                          
-                          {formData.writtenParts.map((part, index) => (
-                            <div key={index} className="flex items-center gap-2">
-                              <div className="flex-1">
-                                <QuranSelector 
-                                  value={part}
-                                  onChange={val => {
-                                    const newParts = [...formData.writtenParts];
-                                    newParts[index] = val;
-                                    setFormData({...formData, writtenParts: newParts});
-                                  }}
-                                  placeholder={'الثمن رقم ' + (index + 1)}
-                                  className={'z-[' + (30 - index) + ']'}
-                                />
-                              </div>
-                              {formData.writtenParts.length > 1 && (
-                                <button 
-                                  onClick={() => {
-                                    const newParts = formData.writtenParts.filter((_, i) => i !== index);
-                                    setFormData({...formData, writtenParts: newParts});
-                                  }}
-                                  className="text-gray-400 hover:text-red-500 p-2"
-                                >
-                                  <X size={18} />
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="bg-blue-50/30 p-4 rounded-xl border border-blue-100 space-y-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h4 className="font-bold text-gray-900 text-sm">الواجب القادم (التحضير)</h4>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-2">تاريخ المراجعة القادمة</label>
-                        <Input 
-                          type="date"
-                          value={formData.nextReviewDate}
-                          onChange={e => setFormData({...formData, nextReviewDate: e.target.value})}
-                          className="bg-white h-10 rounded-lg text-sm"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="block text-xs font-medium text-gray-700">مقدار الواجب</label>
-                        <QuranSelector 
-                          value={formData.nextReviewFrom}
-                          onChange={val => setFormData({...formData, nextReviewFrom: val})}
-                          placeholder="من موضع..."
-                          className="z-20 text-sm"
-                        />
-                        <QuranSelector 
-                          value={formData.nextReviewTo}
-                          onChange={val => setFormData({...formData, nextReviewTo: val})}
-                          placeholder="إلى موضع..."
-                          className="z-10 text-sm"
-                        />
-                      </div>
-                      
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-2">ملاحظات الواجب (اختياري)</label>
-                        <input 
-                          type="text"
-                          value={formData.nextReviewNotes}
-                          onChange={e => setFormData({...formData, nextReviewNotes: e.target.value})}
-                          placeholder="مثال: نصف ثمن..."
-                          className="w-full bg-white h-10 rounded-lg border border-gray-200 px-3 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none"
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">ملاحظات (اختياري)</label>
-                  <textarea 
-                    className="w-full rounded-xl border-gray-200 bg-white p-3 focus:ring-2 focus:ring-primary focus:border-transparent outline-none border min-h-[80px] text-sm resize-none"
-                    placeholder="أضف أي ملاحظات حول أداء الطالب..."
-                    value={formData.notes}
-                    onChange={e => setFormData({...formData, notes: e.target.value})}
-                  />
-                </div>
-                
-                <Button 
-                  className="w-full h-12 rounded-xl text-base mt-2" 
-                  onClick={() => {
-                    const payload = {
-                      ...formData,
-                      date,
-                      writtenParts: JSON.stringify(formData.writtenParts.filter(p => p.trim() !== ''))
-                    };
-                    addHistoryMutation.mutate(payload);
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">حالة التسميع اليوم</label>
+                <select 
+                  className="w-full h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-600 focus:bg-white outline-none cursor-pointer"
+                  value={formData.status}
+                  onChange={e => {
+                    const newStatus = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      status: newStatus,
+                      recitedAthman: shouldShowRecitation(newStatus) ? (prev.recitedAthman.length > 0 ? prev.recitedAthman : ['']) : [],
+                      writtenParts: shouldShowWriting(newStatus) ? (prev.writtenParts.length > 0 ? prev.writtenParts : ['']) : []
+                    }));
                   }}
-                  disabled={addHistoryMutation.isPending}
                 >
-                  {addHistoryMutation.isPending ? 'جاري التسجيل...' : 'حفظ المتابعة'}
-                </Button>
+                  {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
               </div>
             </div>
 
-            {/* History List */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-              <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-4">
-                <Book className="text-primary" size={20} />
-                <h3 className="font-bold text-gray-900 text-lg">سجل التسميع والحفظ التفصيلي</h3>
-              </div>
-              
-              <div className="space-y-4">
-                {student.histories.length === 0 ? (
-                  <div className="text-center py-10 text-gray-500">لا توجد سجلات سابقة</div>
-                ) : (
-                  student.histories.map((history: any) => (
-                    <div key={history.id} className="p-4 rounded-xl border border-gray-200 hover:border-gray-200 transition-colors bg-gray-50/30">
-                      <div className="flex justify-between items-start mb-3 border-b border-gray-200 pb-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`px-3 py-1 rounded-lg text-xs font-bold ${STATUS_COLORS[history.status] || 'bg-gray-100 text-gray-700'}`}>
-                            {history.status}
+            {/* If Student Attended */}
+            {formData.status !== 'لم يحضر' ? (
+              <div className="space-y-4 pt-1">
+                {/* 1. ما تم تسميعه اليوم */}
+                {shouldShowRecitation(formData.status) ? (
+                  <div className="bg-slate-50/80 p-5 rounded-3xl border border-slate-200/80 space-y-3.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-slate-800 font-heading">ما تم تسميعه اليوم</span>
+                          <span className="text-[10px] text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-md font-bold">
+                            المقدار المسجّل
                           </span>
-                          {history.type && (
-                            <span className="px-3 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-600 border border-blue-100">
-                              {history.type}
-                            </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {formData.status === 'عرض ولم يحفظ'
+                            ? 'الموضع الذي عُرض ولم يُتقن الحفظ فيه (سيعاد تسميعه)'
+                            : 'مملوء تلقائياً بما كتبه الطالب في اللوح بالجلسة السابقة'}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleNextRecitation}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-xs transition-all self-start sm:self-auto cursor-pointer"
+                        title="إضافة الثمن التالي تسلسلياً في المصحف"
+                      >
+                        <FastForward size={13} />
+                        <span>⏩ الثمن التالي</span>
+                      </button>
+                    </div>
+
+                    {formData.status === 'عرض ولم يحفظ' && (
+                      <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2 font-bold">
+                        <AlertCircle size={15} className="text-amber-600 shrink-0" />
+                        <span>تنبيه: الطالب لم يتقن الحفظ اليوم، سيكرر نفس المقدار في الجلسة القادمة.</span>
+                      </div>
+                    )}
+
+                    <div className="space-y-2.5">
+                      {formData.recitedAthman.map((part, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <QuranSelector 
+                              value={part}
+                              onChange={val => {
+                                const updated = [...formData.recitedAthman];
+                                updated[idx] = val;
+                                setFormData(prev => ({
+                                  ...prev,
+                                  recitedAthman: updated,
+                                  fromPart: updated[0] || '',
+                                  toPart: updated[updated.length - 1] || ''
+                                }));
+                              }}
+                              placeholder="اختر الثمن المسَمّع..."
+                              className="text-xs"
+                            />
+                          </div>
+                          {formData.recitedAthman.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = formData.recitedAthman.filter((_, i) => i !== idx);
+                                setFormData(prev => ({
+                                  ...prev,
+                                  recitedAthman: updated,
+                                  fromPart: updated[0] || '',
+                                  toPart: updated[updated.length - 1] || ''
+                                }));
+                              }}
+                              className="p-2.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="حذف هذا الثمن"
+                            >
+                              <Trash2 size={16} />
+                            </button>
                           )}
                         </div>
-                        <div className="text-center bg-white border border-gray-200 rounded-lg px-3 py-1 shadow-sm">
-                          <div className="text-sm font-bold text-primary">{format(new Date(history.date), 'dd')}</div>
-                          <div className="text-[10px] text-gray-500 font-medium">{format(new Date(history.date), 'MMMM', { locale: ar })}</div>
-                          <div className="text-[10px] text-gray-400">{format(new Date(history.date), 'yyyy')}</div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 text-xs flex items-center gap-2 font-bold">
+                    <Info size={16} className="text-purple-600 shrink-0" />
+                    <span>حالة (كتب فقط): الطالب حضر وكتب في لوحه القرآني دون تسميع اليوم.</span>
+                  </div>
+                )}
+
+                {/* 2. ما تم كتابته في اللوح */}
+                {shouldShowWriting(formData.status) ? (
+                  <div className="bg-teal-50/50 p-5 rounded-3xl border border-teal-200/80 space-y-3.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-teal-950 font-heading">ما تم كتابته في اللوح القرآني</span>
+                          <div className="inline-flex items-center bg-white rounded-xl border border-teal-200 p-0.5 text-[10px] font-bold">
+                            <button
+                              type="button"
+                              onClick={() => setWritingMode('thumn')}
+                              className={`px-2.5 py-0.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                                writingMode === 'thumn'
+                                  ? 'bg-teal-700 text-white shadow-xs'
+                                  : 'text-teal-800 hover:bg-teal-50'
+                              }`}
+                            >
+                              <Scroll size={11} />
+                              <span>بالأثمان</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setWritingMode('ayah')}
+                              className={`px-2.5 py-0.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 ${
+                                writingMode === 'ayah'
+                                  ? 'bg-teal-700 text-white shadow-xs'
+                                  : 'text-teal-800 hover:bg-teal-50'
+                              }`}
+                            >
+                              <BookMarked size={11} />
+                              <span>بالآيات (للصغار)</span>
+                            </button>
+                          </div>
                         </div>
+                        <p className="text-[11px] text-teal-700/80 mt-0.5">
+                          {writingMode === 'ayah' 
+                            ? 'رصد الآيات اليسيرة المكتوبة في لوح الأطفال والبراعم' 
+                            : 'المقدار القرآني بالأثمان المعتمدة'}
+                        </p>
                       </div>
 
-                      {/* Display Recitation Range */}
-                      {(history.fromPart || history.toPart) && (
-                        <div className="mb-3 space-y-1">
-                          <div className="text-xs text-gray-500 font-bold">المقدار المُسمّع:</div>
-                          <div className="text-sm text-gray-700 bg-white p-2 rounded-lg border border-gray-200">
-                            من: <span className="font-semibold text-primary">{history.fromPart ? formatPart(history.fromPart) : '-'}</span>
-                            <br/>
-                            إلى: <span className="font-semibold text-primary">{history.toPart ? formatPart(history.toPart) : '-'}</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Display Next Assignment */}
-                      {(history.nextReviewFrom || history.nextReviewTo || history.nextReviewDate) && (
-                        <div className="mb-3 space-y-1">
-                          <div className="flex justify-between items-center">
-                            <div className="text-xs text-blue-600 font-bold">الواجب القادم:</div>
-                            {history.nextReviewDate && (
-                              <div className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 font-medium">
-                                لتاريخ: {format(new Date(history.nextReviewDate), 'dd MMMM yyyy', { locale: ar })}
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-sm text-gray-700 bg-blue-50/30 p-2 rounded-lg border border-blue-100">
-                            من: <span className="font-semibold text-blue-700">{history.nextReviewFrom ? formatPart(history.nextReviewFrom) : '-'}</span>
-                            <br/>
-                            إلى: <span className="font-semibold text-blue-700">{history.nextReviewTo ? formatPart(history.nextReviewTo) : '-'}</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {history.notes && (
-                        <p className="text-sm text-gray-600 mt-2 bg-white p-3 rounded-lg border border-gray-200 relative">
-                          <span className="absolute top-2 right-2 text-xs font-bold text-gray-400">ملاحظات:</span>
-                          <span className="block mt-4">{history.notes}</span>
-                        </p>
+                      {writingMode === 'thumn' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const last = formData.writtenParts[formData.writtenParts.length - 1] || formData.toPart;
+                            setFormData(prev => ({
+                              ...prev,
+                              writtenParts: [...prev.writtenParts, getNextThumn(last)]
+                            }));
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-teal-300 text-teal-800 hover:bg-teal-100/50 text-xs font-bold transition-all self-start sm:self-auto cursor-pointer"
+                        >
+                          <Plus size={13} />
+                          <span>إضافة ثمن</span>
+                        </button>
                       )}
                     </div>
-                  ))
+
+                    {writingMode === 'ayah' ? (
+                      <div className="bg-white p-4 rounded-2xl border border-teal-200 space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 mb-1">السورة القرآنية:</label>
+                            <select
+                              value={ayahInput.surah}
+                              onChange={(e) => {
+                                const newSurah = e.target.value;
+                                setAyahInput(prev => ({ ...prev, surah: newSurah }));
+                                const formatted = `${ayahInput.count} آيات من سورة ${newSurah} (${ayahInput.fromAyah}-${ayahInput.toAyah})`;
+                                setFormData(prev => ({ ...prev, writtenParts: [formatted] }));
+                              }}
+                              className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 outline-none"
+                            >
+                              {SURAHS.map((s) => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 mb-1">عدد الآيات المكتوبة:</label>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={ayahInput.count}
+                              onChange={(e) => {
+                                const c = convertArabicToEnglishNumbers(e.target.value).replace(/\D/g, '');
+                                const from = parseInt(ayahInput.fromAyah, 10) || 1;
+                                const to = String(from + (parseInt(c, 10) || 1) - 1);
+                                setAyahInput(prev => ({ ...prev, count: c, toAyah: to }));
+                                const formatted = `${c || '1'} آيات من سورة ${ayahInput.surah} (${from}-${to})`;
+                                setFormData(prev => ({ ...prev, writtenParts: [formatted] }));
+                              }}
+                              className="w-full h-10 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 outline-none font-mono"
+                              placeholder="مثلاً: 5"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 mb-1">المدى (من آية إلى آية):</label>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={ayahInput.fromAyah}
+                                onChange={(e) => {
+                                  const f = convertArabicToEnglishNumbers(e.target.value).replace(/\D/g, '');
+                                  const c = parseInt(ayahInput.count, 10) || 1;
+                                  const to = String((parseInt(f, 10) || 1) + c - 1);
+                                  setAyahInput(prev => ({ ...prev, fromAyah: f, toAyah: to }));
+                                  const formatted = `${ayahInput.count || '1'} آيات من سورة ${ayahInput.surah} (${f || '1'}-${to})`;
+                                  setFormData(prev => ({ ...prev, writtenParts: [formatted] }));
+                                }}
+                                className="w-1/2 h-10 rounded-xl border border-slate-200 bg-slate-50 px-2 text-center text-xs font-bold text-slate-800 outline-none font-mono"
+                                placeholder="من"
+                              />
+                              <span className="text-slate-400 font-bold text-xs">-</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={ayahInput.toAyah}
+                                onChange={(e) => {
+                                  const t = convertArabicToEnglishNumbers(e.target.value).replace(/\D/g, '');
+                                  setAyahInput(prev => ({ ...prev, toAyah: t }));
+                                  const formatted = `${ayahInput.count || '1'} آيات من سورة ${ayahInput.surah} (${ayahInput.fromAyah}-${t || ayahInput.fromAyah})`;
+                                  setFormData(prev => ({ ...prev, writtenParts: [formatted] }));
+                                }}
+                                className="w-1/2 h-10 rounded-xl border border-slate-200 bg-slate-50 px-2 text-center text-xs font-bold text-slate-800 outline-none font-mono"
+                                placeholder="إلى"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-teal-800 bg-teal-50 px-3 py-1.5 rounded-xl border border-teal-200/60 font-bold">
+                          <span>المسجل حالياً في اللوح:</span>
+                          <span className="text-teal-950 font-black">
+                            {formData.writtenParts[0] || `${ayahInput.count} آيات من سورة ${ayahInput.surah}`}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+
+                    <div className="space-y-2.5">
+                      {formData.writtenParts.map((wp, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <QuranSelector
+                              value={wp}
+                              onChange={val => {
+                                const newW = [...formData.writtenParts];
+                                newW[idx] = val;
+                                setFormData(prev => ({ ...prev, writtenParts: newW }));
+                              }}
+                              placeholder="حدد الثمن المكتوب في اللوح..."
+                              className="text-xs"
+                            />
+                          </div>
+                          {formData.writtenParts.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newW = formData.writtenParts.filter((_, i) => i !== idx);
+                                setFormData(prev => ({ ...prev, writtenParts: newW }));
+                              }}
+                              className="p-2.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="حذف هذا الثمن"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-slate-700 text-xs flex items-center gap-2">
+                    <Info size={16} className="text-slate-500 shrink-0" />
+                    <span>
+                      {formData.status === 'عرض وحفظ ولم يكتب'
+                        ? 'حالة (عرض وحفظ ولم يكتب): أتم الطالب التسميع بنجاح، ولم يكتب لوحاً جديداً اليوم.'
+                        : 'حالة (عرض ولم يحفظ): الطالب لم يتقن الحفظ، لذا لا يكتب لوحاً جديداً حتى يتقن لوحه الحالي أولاً.'}
+                    </span>
+                  </div>
                 )}
               </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold text-center">
+                تم تحديد حالة الطالب كـ «لم يحضر» لهذه الجلسة.
+              </div>
+            )}
+
+            {/* Teacher Notes */}
+            <div>
+              <label className="block text-xs font-bold text-slate-600 mb-1.5">ملاحظات المعلم والتوجيهات</label>
+              <textarea 
+                className="w-full rounded-2xl border border-slate-200 bg-white p-3 focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 outline-none min-h-[60px] text-xs resize-none"
+                placeholder="أضف ملاحظات حول جودة الحفظ، التجويد، أو تنبيهات لولي الأمر..."
+                value={formData.notes}
+                onChange={e => setFormData({...formData, notes: e.target.value})}
+              />
             </div>
+            
+            {/* Submit Button */}
+            <Button 
+              className="w-full h-12 rounded-2xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white shadow-md shadow-emerald-700/20 active:scale-[0.99] transition-all cursor-pointer" 
+              onClick={() => {
+                const isRecitationActive = shouldShowRecitation(formData.status);
+                const isWritingActive = shouldShowWriting(formData.status);
+
+                const cleanWritten = isWritingActive
+                  ? formData.writtenParts.filter(p => p.trim() !== '')
+                  : [];
+                const cleanRecited = isRecitationActive
+                  ? formData.recitedAthman.filter(p => p.trim() !== '')
+                  : [];
+                const resolvedFrom = isRecitationActive ? (cleanRecited[0] || formData.fromPart || '') : '';
+                const resolvedTo = isRecitationActive ? (cleanRecited[cleanRecited.length - 1] || formData.toPart || resolvedFrom) : '';
+
+                let nextReviewFrom: string | null = null;
+                let nextReviewTo: string | null = null;
+
+                if (formData.status === 'عرض ولم يحفظ') {
+                  nextReviewFrom = resolvedFrom || null;
+                  nextReviewTo = resolvedTo || resolvedFrom || null;
+                } else if (cleanWritten.length > 0) {
+                  nextReviewFrom = cleanWritten[0];
+                  nextReviewTo = cleanWritten[cleanWritten.length - 1];
+                }
+
+                const payload = {
+                  studentId: student.id,
+                  date,
+                  status: formData.status,
+                  type: 'تسميع',
+                  fromPart: resolvedFrom,
+                  toPart: resolvedTo,
+                  nextReviewFrom,
+                  nextReviewTo,
+                  writtenParts: JSON.stringify(cleanWritten),
+                  notes: formData.notes,
+                  sheikhId: activeSheikh?.id || null,
+                  sheikhName: activeSheikh?.name || null
+                };
+                addHistoryMutation.mutate(payload);
+              }}
+              disabled={addHistoryMutation.isPending}
+            >
+              <CheckCircle2 size={16} className="mr-1.5" />
+              <span>{addHistoryMutation.isPending ? 'جاري تسجيل الجلسة...' : 'حفظ تقدم اليوم في الكُتّاب'}</span>
+            </Button>
+
+            {activeSheikh && (
+              <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-500 pt-1">
+                <span>سيتم توثيق الجلسة بإشراف:</span>
+                <span className="text-emerald-800 font-black">{activeSheikh.name}</span>
+                <span className="text-[10px] text-slate-400">({activeSheikh.role})</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Column 2: Chronological History Timeline (5 cols) */}
+        <div className="lg:col-span-5 bg-white p-6 md:p-7 rounded-3xl shadow-sm border border-slate-200/80 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center">
+                <FileText size={18} />
+              </div>
+              <div>
+                <h3 className="font-black text-slate-900 text-base font-heading">سجل الجلسات السابقة</h3>
+                <p className="text-xs text-slate-400">المسار الزمني لمتابعة الحفظ والكتابة</p>
+              </div>
+            </div>
+            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-xl">
+              {student.histories.length} جلسة
+            </span>
+          </div>
+
+          <div className="space-y-3.5 max-h-[640px] overflow-y-auto pr-1">
+            {student.histories.length === 0 ? (
+              <div className="text-center py-16 text-slate-400 text-xs space-y-2">
+                <BookOpen size={32} className="mx-auto text-slate-300" />
+                <p>لا توجد جلسات مسجلة بعد لهذا الطالب</p>
+              </div>
+            ) : (
+              student.histories.map((history: any) => (
+                <div 
+                  key={history.id} 
+                  className="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300 transition-all space-y-2.5"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                    <span className={`px-2.5 py-1 rounded-xl text-xs font-bold border ${STATUS_COLORS[history.status] || 'bg-slate-100 text-slate-700'}`}>
+                      {history.status}
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-500">
+                      {format(new Date(history.date), 'dd MMMM yyyy', { locale: ar })}
+                    </span>
+                  </div>
+
+                  {(history.sheikhName || history.sheikh?.name) && (
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500 bg-white px-2.5 py-1 rounded-lg border border-slate-200/60 w-fit">
+                      <span className="text-slate-400">بإشراف:</span>
+                      <span className="text-emerald-800">{history.sheikhName || history.sheikh?.name}</span>
+                    </div>
+                  )}
+
+                  {(history.fromPart || history.toPart) && (
+                    <div className="text-xs text-slate-700 bg-white p-3 rounded-xl border border-slate-200/70">
+                      <span className="text-slate-400 font-bold block mb-1 text-[10px]">ما تم تسميعه:</span>
+                      <span className="font-bold text-emerald-800 leading-snug">
+                        {history.fromPart ? formatPart(history.fromPart) : '-'}
+                        {history.toPart && history.toPart !== history.fromPart ? ` إلى ${formatPart(history.toPart)}` : ''}
+                      </span>
+                    </div>
+                  )}
+
+                  {history.writtenParts && (() => {
+                    try {
+                      const wp = JSON.parse(history.writtenParts);
+                      if (wp.length > 0 && wp[0]) {
+                        return (
+                          <div className="text-xs text-teal-900 bg-teal-50/80 p-3 rounded-xl border border-teal-200/60">
+                            <span className="text-teal-700 font-bold block mb-1 text-[10px]">المكتوب في اللوح (الأثمان):</span>
+                            <span className="font-bold leading-snug">
+                              {wp.map((p: string) => formatPart(p)).join('، ')}
+                            </span>
+                          </div>
+                        );
+                      }
+                    } catch {}
+                    return null;
+                  })()}
+
+                  {history.notes && (
+                    <div className="text-xs text-slate-600 italic bg-white/80 p-2.5 rounded-xl border border-slate-100">
+                      {history.notes}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

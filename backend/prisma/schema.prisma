@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "windows"]
 }
 
 datasource db {
@@ -8,37 +9,60 @@ datasource db {
 }
 
 model Student {
-  id             Int       @id @default(autoincrement())
-  serialNumber   String    @unique
-  name           String
-  guardianName   String?
-  guardianPhone  String?
+  id                  Int       @id @default(autoincrement())
+  serialNumber        String    @unique
+  name                String
+  guardianName        String?
+  guardianPhone       String?
   currentReach        String?
   currentRevisionFrom String?
   currentRevisionTo   String?
   createdAt           DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  histories      History[]
+  updatedAt           DateTime  @updatedAt
+  histories           History[]
+}
+
+model Sheikh {
+  id          Int       @id @default(autoincrement())
+  name        String
+  username    String?   @unique
+  password    String?
+  phone       String?
+  role        String    @default("محفظ") // "مشرف عام", "شيخ مقرئ", "محفظ حلقة", "مساعد"
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  histories   History[]
 }
 
 model History {
-  id             Int       @id @default(autoincrement())
-  studentId      Int
-  student        Student   @relation(fields: [studentId], references: [id])
-  date           DateTime  @default(now())
+  id              Int       @id @default(autoincrement())
+  studentId       Int
+  student         Student   @relation(fields: [studentId], references: [id])
+  sheikhId        Int?
+  sheikhName      String?
+  sheikh          Sheikh?   @relation(fields: [sheikhId], references: [id])
+  date            DateTime  @default(now())
   
-  type           String?
-  fromPart       String?
-  toPart         String?
+  type            String?
+  fromPart        String?
+  toPart          String?
   
-  nextReviewDate DateTime?
-  nextReviewFrom String?
-  nextReviewTo   String?
+  nextReviewDate  DateTime?
+  nextReviewFrom  String?
+  nextReviewTo    String?
   nextReviewNotes String?
 
-  status         String
-  notes          String?
-  writtenParts   String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  status          String
+  notes           String?
+  writtenParts    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model SystemSetting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
 }

@@ -1,0 +1,85 @@
+{
+  "name": "kittab-system",
+  "version": "1.0.0",
+  "description": "نظام كُتّاب - منظومة إدارة حلقات القرآن الكريم",
+  "main": "electron/main.cjs",
+  "author": "Kittab Team",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "build": "npm run build:backend && npm run build:frontend",
+    "electron:dev": "electron .",
+    "dev": "concurrently -k -n \"BACKEND,FRONTEND,ELECTRON\" -c \"blue,green,yellow\" \"cd backend && npm run start:dev\" \"cd frontend && npm run dev\" \"wait-on http://localhost:39281/api/health && electron .\"",
+    "build:exe": "npm run build && electron-builder --win --x64",
+    "dist:win": "npm run build:exe"
+  },
+  "build": {
+    "appId": "com.kittab.app",
+    "productName": "Kittab",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "backend/dist",
+        "to": "backend/dist"
+      },
+      {
+        "from": "backend/node_modules",
+        "to": "backend/node_modules"
+      },
+      {
+        "from": "backend/node_modules/.prisma",
+        "to": "backend/node_modules/.prisma"
+      },
+      {
+        "from": "backend/package.json",
+        "to": "backend/package.json"
+      },
+      {
+        "from": "backend/prisma/schema.prisma",
+        "to": "backend/prisma/schema.prisma"
+      },
+      {
+        "from": "backend/prisma/dev.db",
+        "to": "dev.db"
+      },
+      {
+        "from": "frontend/dist",
+        "to": "frontend"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "electron/resources/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "نظام كُتّاب",
+      "uninstallDisplayName": "حذف نظام كُتّاب"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.2"
+  }
+}

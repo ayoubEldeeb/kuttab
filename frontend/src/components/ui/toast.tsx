@@ -1,5 +1,3 @@
-import React, { useState, useEffect } from 'react';
-
 export const Toaster = () => null;
 
 const toast = {
