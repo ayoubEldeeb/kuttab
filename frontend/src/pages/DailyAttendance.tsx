@@ -239,10 +239,26 @@ export default function DailyAttendance() {
   }, [processedStudents, search, statusFilter, stageFilter]);
 
   // Helper date shortcuts
-  const handleSetToday = () => setSelectedDate(todayStr);
-  const handleSetYesterday = () => setSelectedDate(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
-  const handlePrevDay = () => setSelectedDate(format(subDays(new Date(selectedDate), 1), 'yyyy-MM-dd'));
-  const handleNextDay = () => setSelectedDate(format(addDays(new Date(selectedDate), 1), 'yyyy-MM-dd'));
+  const handleSetToday = () => {
+    setIsBulkConfirmOpen(false);
+    setIsResetConfirmOpen(false);
+    setSelectedDate(todayStr);
+  };
+  const handleSetYesterday = () => {
+    setIsBulkConfirmOpen(false);
+    setIsResetConfirmOpen(false);
+    setSelectedDate(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
+  };
+  const handlePrevDay = () => {
+    setIsBulkConfirmOpen(false);
+    setIsResetConfirmOpen(false);
+    setSelectedDate(format(subDays(new Date(selectedDate + 'T12:00:00'), 1), 'yyyy-MM-dd'));
+  };
+  const handleNextDay = () => {
+    setIsBulkConfirmOpen(false);
+    setIsResetConfirmOpen(false);
+    setSelectedDate(format(addDays(new Date(selectedDate + 'T12:00:00'), 1), 'yyyy-MM-dd'));
+  };
 
   // Mark all present
   const handleMarkAllPresent = () => {

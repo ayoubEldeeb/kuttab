@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { 
@@ -18,11 +18,12 @@ import {
   History,
   CalendarDays,
   AlertCircle,
-  Info
+  Info,
+  ChevronLeft
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { format } from 'date-fns';
+import { format, subDays, addDays } from 'date-fns';
 import toast from 'react-hot-toast';
 import { QuranSelector, SURAHS } from '../components/ui/quran-selector';
 import { formatPart } from '../utils/formatPart';
@@ -102,6 +103,47 @@ export default function DailyLog() {
   const [writingMode, setWritingMode] = useState<'thumn' | 'ayah'>('thumn');
   const [ayahInput, setAyahInput] = useState({ surah: 'النبأ', count: '5', fromAyah: '1', toAyah: '5' });
 
+  // Completely reset active student form and selection when switching dates or canceling
+  const resetForm = () => {
+    setActiveFormId(null);
+    setFormData({
+      status: '',
+      fromPart: '',
+      toPart: '',
+      recitedAthman: [],
+      entryMode: 'athman',
+      notes: '',
+      writtenParts: [],
+    });
+    setWritingMode('thumn');
+    setAyahInput({ surah: 'النبأ', count: '5', fromAyah: '1', toAyah: '5' });
+  };
+
+  // Automatically clear active form/selection whenever date changes so state is never carried over
+  useEffect(() => {
+    resetForm();
+  }, [date]);
+
+  const todayStr = useMemo(() => format(new Date(), 'yyyy-MM-dd'), []);
+  const isSelectedToday = date === todayStr;
+
+  const handleSetToday = () => {
+    resetForm();
+    setDate(todayStr);
+  };
+  const handleSetYesterday = () => {
+    resetForm();
+    setDate(format(subDays(new Date(), 1), 'yyyy-MM-dd'));
+  };
+  const handlePrevDay = () => {
+    resetForm();
+    setDate(format(subDays(new Date(date + 'T12:00:00'), 1), 'yyyy-MM-dd'));
+  };
+  const handleNextDay = () => {
+    resetForm();
+    setDate(format(addDays(new Date(date + 'T12:00:00'), 1), 'yyyy-MM-dd'));
+  };
+
   const { data: students, isLoading } = useQuery({
     queryKey: ['students', date],
     queryFn: async () => {
@@ -116,16 +158,16 @@ export default function DailyLog() {
     },
     onSuccess: () => {
       toast.success('تم حفظ سجل الطالب بنجاح');
-      queryClient.invalidateQueries({ queryKey: ['students', date] });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      setActiveFormId(null);
+      resetForm();
     },
     onError: () => {
       toast.error('حدث خطأ أثناء حفظ السجل');
     },
   });
 
-  const dateStr = format(new Date(date), 'yyyy-MM-dd');
+  const dateStr = date;
 
   const handleStatusClick = (studentId: number, opt: string, todayHistory?: any, student?: any) => {
     if (opt === 'لم يحضر') {
@@ -137,10 +179,10 @@ export default function DailyLog() {
         sheikhId: activeSheikh?.id || null,
         sheikhName: activeSheikh?.name || null,
       });
-      setActiveFormId(null);
+      resetForm();
     } else {
       if (activeFormId === studentId && formData.status === opt) {
-        setActiveFormId(null);
+        resetForm();
       } else {
         let initialFrom = '';
         let initialTo = '';
@@ -489,16 +531,58 @@ export default function DailyLog() {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-          <div className="relative w-full sm:w-auto">
-            <Calendar className="absolute right-3.5 top-3 text-slate-400" size={18} />
-            <Input
-              type="date"
-              className="pr-10 w-full rounded-2xl h-11 bg-slate-50 border-slate-200 text-sm font-semibold"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
+          {/* Date Selector & Fast Shortcuts */}
+          <div className="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-2xl border border-slate-200 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={handleSetToday}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                isSelectedToday
+                  ? 'bg-emerald-700 text-white shadow-xs'
+                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/70'
+              }`}
+            >
+              اليوم
+            </button>
+            
+            <button
+              type="button"
+              onClick={handleSetYesterday}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/70 transition-all cursor-pointer"
+            >
+              أمس
+            </button>
+
+            <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-xl border border-slate-200/70">
+              <button
+                type="button"
+                onClick={handlePrevDay}
+                title="اليوم السابق"
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors cursor-pointer"
+              >
+                <ChevronLeft size={16} className="rotate-180" />
+              </button>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => {
+                  resetForm();
+                  setDate(e.target.value);
+                }}
+                className="bg-transparent text-xs sm:text-sm font-bold text-slate-800 outline-none px-1 cursor-pointer"
+              />
+              <button
+                type="button"
+                onClick={handleNextDay}
+                title="اليوم التالي"
+                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors cursor-pointer"
+              >
+                <ChevronLeft size={16} />
+              </button>
+            </div>
           </div>
+
           <div className="relative w-full sm:w-64">
             <Search className="absolute right-3.5 top-3 text-slate-400" size={18} />
             <Input
@@ -1240,7 +1324,7 @@ export default function DailyLog() {
                     <div className="flex justify-end gap-2.5 pt-2">
                       <Button
                         variant="outline"
-                        onClick={() => setActiveFormId(null)}
+                        onClick={resetForm}
                         className="rounded-xl px-5 text-xs font-bold cursor-pointer"
                       >
                         إلغاء
