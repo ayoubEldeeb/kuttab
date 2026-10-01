@@ -50,6 +50,10 @@
         "to": "dev.db"
       },
       {
+        "from": "backend/prisma/dev.db",
+        "to": "backend/prisma/dev.db"
+      },
+      {
         "from": "frontend/dist",
         "to": "frontend"
       }

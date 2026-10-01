@@ -8,7 +8,32 @@ let mainWindow = null;
 let backendProcess = null;
 
 const PORT = 39281;
+const HOST = '127.0.0.1';
 const isDev = !app.isPackaged;
+
+let logStream = null;
+let recentErrors = [];
+
+function getLogPath() {
+  const userData = app.getPath('userData');
+  if (!fs.existsSync(userData)) {
+    fs.mkdirSync(userData, { recursive: true });
+  }
+  return path.join(userData, 'kittab-app.log');
+}
+
+function log(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  console.log(msg);
+  try {
+    if (!logStream) {
+      logStream = fs.createWriteStream(getLogPath(), { flags: 'a' });
+    }
+    logStream.write(line);
+  } catch (e) {
+    console.error('Failed to write to log:', e);
+  }
+}
 
 // Ensure single instance
 const gotTheLock = app.requestSingleInstanceLock();
@@ -34,11 +59,27 @@ function getDatabasePath() {
   }
 
   const targetDb = path.join(userDataPath, 'kittab.db');
+  let needSeed = false;
+
   if (!fs.existsSync(targetDb)) {
+    needSeed = true;
+  } else {
+    try {
+      const stat = fs.statSync(targetDb);
+      if (stat.size === 0) {
+        needSeed = true;
+      }
+    } catch {
+      needSeed = true;
+    }
+  }
+
+  if (needSeed) {
     // Seed from template db in resources
     const possibleSeedPaths = [
       path.join(process.resourcesPath, 'dev.db'),
       path.join(process.resourcesPath, 'backend', 'prisma', 'dev.db'),
+      path.join(process.resourcesPath, 'backend', 'dev.db'),
       path.join(process.resourcesPath, 'app.asar.unpacked', 'backend', 'prisma', 'dev.db'),
       path.join(__dirname, '../backend/prisma/dev.db'),
     ];
@@ -47,10 +88,13 @@ function getDatabasePath() {
       if (fs.existsSync(seedPath)) {
         try {
           fs.copyFileSync(seedPath, targetDb);
-          console.log(`[Electron] Initialized database from seed: ${seedPath} -> ${targetDb}`);
+          try {
+            fs.chmodSync(targetDb, 0o666);
+          } catch {}
+          log(`[Electron] Initialized database from seed: ${seedPath} -> ${targetDb}`);
           break;
         } catch (err) {
-          console.error('[Electron] Failed to copy seed database:', err);
+          log(`[Electron] Failed to copy seed database: ${err.message}`);
         }
       }
     }
@@ -59,7 +103,7 @@ function getDatabasePath() {
   return targetDb;
 }
 
-function checkServerHealth(url, timeoutMs = 25000) {
+function checkServerHealth(url, timeoutMs = 30000) {
   const startTime = Date.now();
   return new Promise((resolve) => {
     const check = () => {
@@ -75,7 +119,7 @@ function checkServerHealth(url, timeoutMs = 25000) {
         retry();
       });
 
-      req.setTimeout(1000, () => {
+      req.setTimeout(1500, () => {
         req.destroy();
         retry();
       });
@@ -85,7 +129,7 @@ function checkServerHealth(url, timeoutMs = 25000) {
       if (Date.now() - startTime > timeoutMs) {
         resolve(false);
       } else {
-        setTimeout(check, 300);
+        setTimeout(check, 400);
       }
     };
 
@@ -94,29 +138,35 @@ function checkServerHealth(url, timeoutMs = 25000) {
 }
 
 async function startBackend() {
-  const isHealthy = await checkServerHealth(`http://localhost:${PORT}/api/health`, 1500);
+  const isHealthy = await checkServerHealth(`http://${HOST}:${PORT}/api/health`, 1500);
   if (isHealthy) {
-    console.log(`[Electron] Backend is already running on port ${PORT}`);
+    log(`[Electron] Backend is already running on port ${PORT}`);
     return;
   }
 
   const dbPath = getDatabasePath();
-  const dbUrl = `file:${dbPath}`;
+  // Ensure forward slashes for SQLite connection URL on Windows
+  const normalizedDbPath = path.resolve(dbPath).replace(/\\/g, '/');
+  const dbUrl = `file:${normalizedDbPath}`;
 
   let backendEntry = null;
   let frontendPath = null;
+  let backendCwd = null;
 
   if (isDev) {
     backendEntry = path.resolve(__dirname, '../backend/dist/main.js');
     frontendPath = path.resolve(__dirname, '../frontend/dist');
+    backendCwd = path.resolve(__dirname, '../backend');
   } else {
     const baseResources = process.resourcesPath;
     backendEntry = path.join(baseResources, 'backend', 'dist', 'main.js');
     frontendPath = path.join(baseResources, 'frontend');
+    backendCwd = path.join(baseResources, 'backend');
   }
 
-  console.log(`[Electron] Starting backend from: ${backendEntry}`);
-  console.log(`[Electron] Database URL: ${dbUrl}`);
+  log(`[Electron] Starting backend from: ${backendEntry}`);
+  log(`[Electron] Backend CWD: ${backendCwd}`);
+  log(`[Electron] Database URL: ${dbUrl}`);
 
   const env = {
     ...process.env,
@@ -127,30 +177,41 @@ async function startBackend() {
   };
 
   try {
-    // In production, process.execPath is the Electron executable running as node
-    // In dev, we can use process.execPath or standard node
-    const execPath = isDev ? process.execPath : process.execPath;
+    const execPath = process.execPath;
 
     backendProcess = spawn(execPath, [backendEntry], {
+      cwd: backendCwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
 
     backendProcess.stdout.on('data', (data) => {
-      console.log(`[Backend STDOUT] ${data.toString().trim()}`);
+      const str = data.toString().trim();
+      log(`[Backend STDOUT] ${str}`);
     });
 
     backendProcess.stderr.on('data', (data) => {
-      console.error(`[Backend STDERR] ${data.toString().trim()}`);
+      const str = data.toString().trim();
+      log(`[Backend STDERR] ${str}`);
+      recentErrors.push(str);
+      if (recentErrors.length > 10) {
+        recentErrors.shift();
+      }
     });
 
     backendProcess.on('exit', (code, signal) => {
-      console.log(`[Backend Process Exited] code=${code} signal=${signal}`);
+      log(`[Backend Process Exited] code=${code} signal=${signal}`);
       backendProcess = null;
     });
+
+    backendProcess.on('error', (err) => {
+      log(`[Backend Process Error] ${err.message}`);
+      recentErrors.push(err.message);
+    });
   } catch (err) {
-    console.error('[Electron] Failed to spawn backend process:', err);
+    log(`[Electron] Failed to spawn backend process: ${err.message}`);
+    recentErrors.push(err.message);
   }
 }
 
@@ -179,26 +240,26 @@ function createWindow() {
 
   // Decide URL
   const loadApp = async () => {
-    // Wait for backend to be ready
-    const ready = await checkServerHealth(`http://localhost:${PORT}/api/health`, 20000);
+    // Wait for backend to be ready with 35 second timeout
+    const ready = await checkServerHealth(`http://${HOST}:${PORT}/api/health`, 35000);
     if (!ready) {
+      const errDetails = recentErrors.length > 0 ? `\n\nتفاصيل الخطأ:\n${recentErrors.slice(-3).join('\n')}` : '';
       dialog.showErrorBox(
         'خطأ في تشغيل النظام',
-        'تعذر الاتصال بقاعدة البيانات أو الخادم المحلي. الرجاء إعادة تشغيل التطبيق.'
+        `تعذر الاتصال بقاعدة البيانات أو الخادم المحلي. الرجاء إعادة تشغيل التطبيق.${errDetails}\n\nملف السجل: ${getLogPath()}`
       );
       return;
     }
 
     if (isDev) {
-      // Check if Vite dev server is running on 5175
       const viteRunning = await checkServerHealth('http://localhost:5175', 1000);
       if (viteRunning) {
         mainWindow.loadURL('http://localhost:5175');
       } else {
-        mainWindow.loadURL(`http://localhost:${PORT}`);
+        mainWindow.loadURL(`http://${HOST}:${PORT}`);
       }
     } else {
-      mainWindow.loadURL(`http://localhost:${PORT}`);
+      mainWindow.loadURL(`http://${HOST}:${PORT}`);
     }
   };
 
@@ -212,6 +273,7 @@ function createWindow() {
 ipcMain.handle('get-app-version', () => app.getVersion());
 
 app.whenReady().then(async () => {
+  log(`[Electron] Kittab app starting (packaged=${app.isPackaged})`);
   await startBackend();
   createWindow();
 
@@ -225,11 +287,11 @@ app.whenReady().then(async () => {
 function cleanupBackend() {
   if (backendProcess) {
     try {
-      console.log('[Electron] Terminating backend process...');
+      log('[Electron] Terminating backend process...');
       backendProcess.kill();
       backendProcess = null;
     } catch (e) {
-      console.error('[Electron] Error terminating backend:', e);
+      log(`[Electron] Error terminating backend: ${e.message}`);
     }
   }
 }

@@ -55,8 +55,7 @@ async function bootstrap() {
   }
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 39281;
-  await app.listen(port);
-  console.log(`[Backend] Kittab API is running on http://localhost:${port}`);
+  await app.listen(port, '0.0.0.0');
+  console.log(`[Backend] Kittab API is running on http://127.0.0.1:${port}`);
 }
 bootstrap();
-
