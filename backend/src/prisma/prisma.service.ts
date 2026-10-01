@@ -1,12 +1,33 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
+/**
+ * Makes a hosted Postgres URL safe to hand to Prisma at runtime:
+ * behind a transaction pooler prepared statements must be off, and
+ * channel_binding is a libpq-only parameter the query engine rejects.
+ */
+function normalizeDatabaseUrl(url: string): string {
+  if (!url.startsWith('postgres')) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('channel_binding');
+    if (u.hostname.includes('-pooler.') || u.port === '6543') {
+      u.searchParams.set('pgbouncer', 'true');
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit {
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
-    const dbUrl = process.env.DATABASE_URL;
+    const dbUrl = process.env.DATABASE_URL
+      ? normalizeDatabaseUrl(process.env.DATABASE_URL)
+      : undefined;
     super({
       datasources: dbUrl
         ? {
@@ -21,12 +42,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      this.logger.log(`Connecting to database at: ${process.env.DATABASE_URL || 'default'}`);
+      const url = process.env.DATABASE_URL || '';
+      // never log credentials
+      this.logger.log(
+        `Connecting to database: ${url.startsWith('postgres') ? new URL(url).hostname : url || 'default'}`,
+      );
       await this.$connect();
       this.logger.log('Database connected successfully.');
 
       // Self-healing schema for SQLite: ensure all required tables and indexes exist
-      const url = process.env.DATABASE_URL || '';
       if (!url || url.startsWith('file:')) {
         await this.ensureSchema();
       }

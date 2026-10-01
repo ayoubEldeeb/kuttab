@@ -18,12 +18,26 @@ if (dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgresql://')) {
   console.log('[prepare-db] Generating Prisma client for PostgreSQL...');
   execSync('npx prisma generate', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });
 
-  console.log('[prepare-db] Synchronizing database schema to PostgreSQL (Supabase)...');
-  // For schema push, bypass pgbouncer pooler (port 6543) and use direct session port (5432)
-  const pushUrl = dbUrl
-    .replace(':6543', ':5432')
-    .replace('?pgbouncer=true', '')
-    .replace('&pgbouncer=true', '');
+  console.log('[prepare-db] Synchronizing database schema to PostgreSQL...');
+  // DDL must not go through a transaction pooler, so aim the push at the
+  // direct endpoint: Neon drops the "-pooler" host suffix, Supabase uses the
+  // session port 5432 instead of 6543.
+  const pushUrl = (() => {
+    try {
+      const u = new URL(dbUrl);
+      u.hostname = u.hostname.replace('-pooler.', '.');
+      if (u.port === '6543') u.port = '5432';
+      u.searchParams.delete('pgbouncer');
+      // libpq-only parameter that the Prisma engine does not understand
+      u.searchParams.delete('channel_binding');
+      return u.toString();
+    } catch {
+      return dbUrl
+        .replace(':6543', ':5432')
+        .replace('?pgbouncer=true', '')
+        .replace('&pgbouncer=true', '');
+    }
+  })();
 
   try {
     execSync('npx prisma db push --skip-generate', {
