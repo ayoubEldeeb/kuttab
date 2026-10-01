@@ -12,6 +12,10 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableCors();
 
+  // All REST endpoints live under /api so the SPA can own every other path
+  // (e.g. /students is a client-side route, /api/students is the API).
+  app.setGlobalPrefix('api');
+
   // Search for frontend dist directory
   const possiblePaths = [
     process.env.FRONTEND_PATH,
@@ -40,12 +44,7 @@ async function bootstrap() {
         return next();
       }
       const p = req.path || req.url;
-      if (
-        p.startsWith('/students') ||
-        p.startsWith('/sheikhs') ||
-        p.startsWith('/settings') ||
-        p.startsWith('/api')
-      ) {
+      if (p.startsWith('/api')) {
         return next();
       }
       res.sendFile(path.join(frontendPath!, 'index.html'));
@@ -56,6 +55,6 @@ async function bootstrap() {
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 39281;
   await app.listen(port, '0.0.0.0');
-  console.log(`[Backend] Kittab API is running on http://127.0.0.1:${port}`);
+  console.log(`[Backend] Kittab API is running on port ${port}`);
 }
 bootstrap();

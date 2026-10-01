@@ -1,0 +1,26 @@
+# Render Blueprint: one free web service that serves the Nest API (/api/*)
+# and the built React SPA (everything else) from the same origin.
+services:
+  - type: web
+    name: kittab
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: >-
+      cd frontend && npm ci --include=dev && npm run build &&
+      cd ../backend && npm ci --include=dev && npm run build
+    startCommand: cd backend && npm run start:prod
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22.14.0"
+      # Postgres connection string (Neon / Supabase / any provider).
+      # Set it in the Render dashboard, never in this file.
+      - key: DATABASE_URL
+        sync: false
+      # Credentials of the first (admin) account, seeded on an empty database.
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

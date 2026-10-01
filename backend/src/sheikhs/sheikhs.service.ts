@@ -10,11 +10,13 @@ export class SheikhsService implements OnModuleInit {
     // Seed default sheikh if none exist
     const count = await this.prisma.sheikh.count();
     if (count === 0) {
+      // Credentials of the first account can be set from the environment,
+      // which matters for public deployments where 'admin'/'123456' is unsafe.
       await this.prisma.sheikh.create({
         data: {
           name: 'الشيخ المشرف العام',
-          username: 'admin',
-          password: hashPassword('123456'),
+          username: process.env.ADMIN_USERNAME || 'admin',
+          password: hashPassword(process.env.ADMIN_PASSWORD || '123456'),
           phone: '',
           role: 'مشرف عام',
           isActive: true,

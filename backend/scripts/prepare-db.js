@@ -19,11 +19,30 @@ if (dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgresql://')) {
   execSync('npx prisma generate', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });
 
   console.log('[prepare-db] Synchronizing database schema to PostgreSQL (Supabase)...');
+  // For schema push, bypass pgbouncer pooler (port 6543) and use direct session port (5432)
+  const pushUrl = dbUrl
+    .replace(':6543', ':5432')
+    .replace('?pgbouncer=true', '')
+    .replace('&pgbouncer=true', '');
+
   try {
-    execSync('npx prisma db push --skip-generate', { stdio: 'inherit', cwd: path.resolve(__dirname, '..') });
+    execSync('npx prisma db push --skip-generate', {
+      stdio: 'inherit',
+      cwd: path.resolve(__dirname, '..'),
+      env: { ...process.env, DATABASE_URL: pushUrl },
+    });
     console.log('[prepare-db] Schema pushed successfully to Supabase.');
   } catch (err) {
-    console.warn('[prepare-db] Warning: prisma db push failed:', err.message);
+    console.warn('[prepare-db] Warning: prisma db push with direct URL failed, trying original URL:', err.message);
+    try {
+      execSync('npx prisma db push --skip-generate', {
+        stdio: 'inherit',
+        cwd: path.resolve(__dirname, '..'),
+      });
+      console.log('[prepare-db] Schema pushed successfully with original URL.');
+    } catch (e) {
+      console.warn('[prepare-db] Schema push notice:', e.message);
+    }
   }
 } else {
   console.log('[prepare-db] Using SQLite for local/desktop...');
