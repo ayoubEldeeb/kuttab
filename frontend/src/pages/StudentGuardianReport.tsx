@@ -16,7 +16,9 @@ import {
   Repeat,
   Award,
   ShieldCheck,
-  Clock
+  Clock,
+  Crown,
+  Bookmark
 } from 'lucide-react';
 import { format, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -24,6 +26,7 @@ import api from '../utils/api';
 import { formatPart } from '../utils/formatPart';
 import { getQuranStage } from '../utils/quranStages';
 import { useThemeAndSettings } from '../context/ThemeAndSettingsContext';
+import { getKhatmahLabel } from '../utils/khatmahUtils';
 
 type WritingUnit = 'thumn' | 'ayah';
 type PrintLayoutMode = 'full' | 'single_page';
@@ -135,7 +138,13 @@ export default function StudentGuardianReport() {
     msg += `تحية طيبة مباركة من *منظومة حلقات كُتّاب لتحفيظ القرآن الكريم*.\n\n`;
     msg += `📄 *تقرير المتابعة الدورية للفترة:* من ${formatDateDisplay(startDate)} إلى ${formatDateDisplay(endDate)}\n`;
     msg += `━━━━━━━━━━━━━━━━━━\n`;
+    if (student.isKhatim) {
+      msg += `👑 *صفة الطالب:* خاتم لكتاب الله تعالى (${getKhatmahLabel(student.khatmahCount)})\n`;
+    }
     msg += `📖 *المرحلة القرآنية:* ${stage}\n`;
+    if (student.startReach) {
+      msg += `🌱 *نقطة البداية عند الالتحاق:* ${formatPart(student.startReach)}\n`;
+    }
     msg += `📌 *آخر موضع محفوظ:* ${formatPart(student.currentReach) || 'بداية المصحف'}\n`;
     if (student.currentRevisionFrom || student.currentRevisionTo) {
       msg += `🔁 *ورد المراجعة:* من ${formatPart(student.currentRevisionFrom)} إلى ${formatPart(student.currentRevisionTo)}\n`;
@@ -486,10 +495,18 @@ export default function StudentGuardianReport() {
 
               <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200/80 shadow-2xs">
                 <span className="text-slate-500 block font-bold text-[11px] mb-0.5">المرحلة القرآنية الحالية:</span>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-950 font-black text-xs border border-emerald-200">
-                  <Layers size={13} className="text-emerald-700" />
-                  <span>{stage}</span>
-                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-950 font-black text-xs border border-emerald-200">
+                    <Layers size={13} className="text-emerald-700" />
+                    <span>{stage}</span>
+                  </span>
+                  {student.isKhatim && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-100 text-amber-950 font-black text-xs border border-amber-300">
+                      <Crown size={12} className="text-amber-600" />
+                      <span>خاتم ({getKhatmahLabel(student.khatmahCount)})</span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="col-span-2 bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200/80 shadow-2xs">
@@ -497,9 +514,17 @@ export default function StudentGuardianReport() {
                   <BookOpen size={13} className="text-emerald-700" />
                   <span>آخر موضع محفوظ (المستوى المعتمد بالحلقة):</span>
                 </span>
-                <span className="text-xs font-black text-emerald-950">
-                  {student.currentReach ? formatPart(student.currentReach) : 'بداية المصحف الشريف'}
-                </span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-black text-emerald-950">
+                    {student.currentReach ? formatPart(student.currentReach) : 'بداية المصحف الشريف'}
+                  </span>
+                  {student.startReach && (
+                    <span className="text-[11px] text-amber-900 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 font-bold inline-flex items-center gap-1">
+                      <Bookmark size={10} className="text-amber-600" />
+                      <span>نقطة البداية عند الالتحاق: {formatPart(student.startReach)}</span>
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="col-span-2 bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200/80 shadow-2xs">

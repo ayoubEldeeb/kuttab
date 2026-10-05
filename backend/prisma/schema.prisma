@@ -17,6 +17,11 @@ model Student {
   currentReach        String?
   currentRevisionFrom String?
   currentRevisionTo   String?
+  startReach          String?
+  isKhatim            Boolean   @default(false)
+  khatmahCount        Int       @default(0)
+  sheikhId            Int?
+  sheikh              Sheikh?   @relation(fields: [sheikhId], references: [id])
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   histories           History[]
@@ -32,6 +37,7 @@ model Sheikh {
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  students    Student[]
   histories   History[]
 }
 

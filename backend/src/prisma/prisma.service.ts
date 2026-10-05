@@ -72,10 +72,27 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
           "currentReach" TEXT,
           "currentRevisionFrom" TEXT,
           "currentRevisionTo" TEXT,
+          "startReach" TEXT,
+          "isKhatim" BOOLEAN NOT NULL DEFAULT 0,
+          "khatmahCount" INTEGER NOT NULL DEFAULT 0,
           "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
       `);
+
+      // Safely ensure new columns exist for existing databases
+      try {
+        await this.$executeRawUnsafe('ALTER TABLE "Student" ADD COLUMN "startReach" TEXT;');
+      } catch {}
+      try {
+        await this.$executeRawUnsafe('ALTER TABLE "Student" ADD COLUMN "isKhatim" BOOLEAN NOT NULL DEFAULT 0;');
+      } catch {}
+      try {
+        await this.$executeRawUnsafe('ALTER TABLE "Student" ADD COLUMN "khatmahCount" INTEGER NOT NULL DEFAULT 0;');
+      } catch {}
+      try {
+        await this.$executeRawUnsafe('ALTER TABLE "Student" ADD COLUMN "sheikhId" INTEGER;');
+      } catch {}
 
       await this.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "Student_serialNumber_key" ON "Student"("serialNumber");

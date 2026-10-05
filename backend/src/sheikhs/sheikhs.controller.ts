@@ -42,6 +42,11 @@ export class SheikhsController {
     return this.sheikhsService.findAll();
   }
 
+  @Get('supervision/stats')
+  getSupervisionStats() {
+    return this.sheikhsService.getSupervisionStats();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.sheikhsService.findOne(+id);

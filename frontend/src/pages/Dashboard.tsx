@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { 
   Users, 
@@ -15,14 +15,41 @@ import {
   AlertCircle,
   Filter,
   X,
-  Send
+  Send,
+  Crown,
+  Sparkles,
+  Bookmark,
+  Edit2
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import api from '../utils/api';
 import { formatPart } from '../utils/formatPart';
 import { QURAN_STAGES, getQuranStage } from '../utils/quranStages';
+import { KHATMAH_PRESETS, getKhatmahLabel, getKhatmahBadgeClass } from '../utils/khatmahUtils';
 
 interface DashboardStats {
   totalStudents: number;
+  khatmeenStats?: {
+    totalCount: number;
+    percentage: number;
+    breakdown: {
+      first: number;
+      second: number;
+      third: number;
+      fourthPlus: number;
+    };
+    students: Array<{
+      id: number;
+      name: string;
+      serialNumber: string;
+      currentReach: string | null;
+      startReach: string | null;
+      isKhatim: boolean;
+      khatmahCount: number;
+      guardianPhone?: string | null;
+      guardianName?: string | null;
+    }>;
+  };
   today: {
     recordedCount: number;
     attendedCount: number;
@@ -68,6 +95,14 @@ export default function Dashboard() {
   const [modalSelectedStage, setModalSelectedStage] = useState<string>('all');
   const [modalSurahFilter, setModalSurahFilter] = useState('');
 
+  // Khatmeen Management State
+  const [khatmahFilter, setKhatmahFilter] = useState<'all' | '1' | '2' | '3' | '4plus'>('all');
+  const [khatmeenSearch, setKhatmeenSearch] = useState('');
+  const [editingKhatmahStudent, setEditingKhatmahStudent] = useState<any | null>(null);
+  const [editKhatmahCount, setEditKhatmahCount] = useState<number>(1);
+
+  const queryClient = useQueryClient();
+
   // Fetch Dashboard Stats from backend
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
     queryKey: ['dashboard-stats'],
@@ -86,6 +121,34 @@ export default function Dashboard() {
       return res.data;
     },
   });
+
+  const updateKhatmahMutation = useMutation({
+    mutationFn: async ({ id, khatmahCount, isKhatim }: { id: number; khatmahCount: number; isKhatim: boolean }) => {
+      const res = await api.put(`/students/${id}`, { khatmahCount, isKhatim });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['students'] });
+      queryClient.invalidateQueries({ queryKey: ['students-quick'] });
+      toast.success('تم حفظ وتحديث بيانات الختمة بنجاح');
+      setEditingKhatmahStudent(null);
+    },
+    onError: () => {
+      toast.error('حدث خطأ أثناء تحديث حالة الختمة');
+    },
+  });
+
+  const handlePromoteKhatmah = (student: any) => {
+    const current = Number(student.khatmahCount) || 1;
+    const nextCount = current + 1;
+    updateKhatmahMutation.mutate({
+      id: student.id,
+      khatmahCount: nextCount,
+      isKhatim: true,
+    });
+    toast.success(`تمت ترقية الطالب ${student.name} إلى ${getKhatmahLabel(nextCount)}! مبارك للطالب 🎉`);
+  };
 
   const todayFormatted = new Intl.DateTimeFormat('ar-EG', {
     weekday: 'long',
@@ -172,8 +235,51 @@ export default function Dashboard() {
 
   const unclassifiedCount = students?.filter((s: any) => getQuranStage(s.currentReach) === 'غير محدد').length || 0;
 
+  // Khatmeen Computed Lists
+  const khatmeenStudentsList = useMemo(() => {
+    if (stats?.khatmeenStats?.students && stats.khatmeenStats.students.length > 0) {
+      return stats.khatmeenStats.students;
+    }
+    return students?.filter((s: any) => s.isKhatim) || [];
+  }, [stats?.khatmeenStats?.students, students]);
+
+  const totalKhatmeen = stats?.khatmeenStats?.totalCount ?? khatmeenStudentsList.length;
+
+  const khatmahCounts = useMemo(() => {
+    if (stats?.khatmeenStats?.breakdown) {
+      return stats.khatmeenStats.breakdown;
+    }
+    return {
+      first: khatmeenStudentsList.filter((s: any) => (s.khatmahCount || 1) === 1).length,
+      second: khatmeenStudentsList.filter((s: any) => s.khatmahCount === 2).length,
+      third: khatmeenStudentsList.filter((s: any) => s.khatmahCount === 3).length,
+      fourthPlus: khatmeenStudentsList.filter((s: any) => (s.khatmahCount || 0) >= 4).length,
+    };
+  }, [stats?.khatmeenStats?.breakdown, khatmeenStudentsList]);
+
+  const filteredKhatmeen = useMemo(() => {
+    return khatmeenStudentsList.filter((s: any) => {
+      const matchesSearch = !khatmeenSearch.trim() || 
+        s.name.includes(khatmeenSearch.trim()) || 
+        s.serialNumber.includes(khatmeenSearch.trim());
+
+      if (!matchesSearch) return false;
+
+      const count = Number(s.khatmahCount) || 1;
+      if (khatmahFilter === 'all') return true;
+      if (khatmahFilter === '1') return count === 1;
+      if (khatmahFilter === '2') return count === 2;
+      if (khatmahFilter === '3') return count === 3;
+      if (khatmahFilter === '4plus') return count >= 4;
+      return true;
+    });
+  }, [khatmeenStudentsList, khatmeenSearch, khatmahFilter]);
+
   // Filter students for the Stage & Surah Modal
   const modalFilteredStudents = students?.filter((s: any) => {
+    if (modalSelectedStage === 'khatmeen') {
+      return s.isKhatim;
+    }
     const stageName = getQuranStage(s.currentReach);
     const matchesStage = modalSelectedStage === 'all' || stageName === modalSelectedStage;
     const matchesSurah = !modalSurahFilter.trim() || 
@@ -302,8 +408,8 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* 4 Core KPI Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      {/* 5 Core KPI Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {/* Card 1: Total Students */}
         <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
           <div className="flex items-start justify-between">
@@ -325,10 +431,41 @@ export default function Dashboard() {
           </div>
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
             <Link to="/students" className="text-emerald-700 hover:text-emerald-800 font-bold flex items-center gap-1">
-              عرض دليل الطلاب
+              دليل الطلاب
               <ChevronLeft size={14} />
             </Link>
             <span className="text-slate-400">{unrecordedCount > 0 ? `${unrecordedCount} لم يرصدوا` : 'الكل مسجل'}</span>
+          </div>
+        </div>
+
+        {/* Card 2: Khatmeen Students (الطلاب الخاتمون) */}
+        <div className="bg-white rounded-2xl p-6 border border-amber-200/80 shadow-sm hover:shadow-md hover:border-amber-400 transition-all relative overflow-hidden group">
+          <div className="flex items-start justify-between">
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-amber-900/80 uppercase tracking-wider flex items-center gap-1">
+                <Sparkles size={12} className="text-amber-600" />
+                <span>الطلاب الخاتمون</span>
+              </span>
+              <div className="text-3xl font-black text-amber-950 font-heading">
+                {statsLoading ? '...' : totalKhatmeen}
+              </div>
+              <p className="text-xs text-amber-800 font-medium flex items-center gap-1">
+                <Crown size={13} className="text-amber-600" />
+                <span>{totalStudents > 0 ? Math.round((totalKhatmeen / totalStudents) * 100) : 0}% من إجمالي الطلاب</span>
+              </p>
+            </div>
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 text-white flex items-center justify-center border border-amber-300 shadow-sm group-hover:scale-110 transition-transform">
+              <Crown size={22} />
+            </div>
+          </div>
+          <div className="mt-4 pt-3 border-t border-amber-100 flex items-center justify-between text-xs">
+            <a href="#khatmeen-section" className="text-amber-800 hover:text-amber-950 font-black flex items-center gap-1">
+              إدارة الخاتمين
+              <ChevronLeft size={14} />
+            </a>
+            <span className="text-slate-500 font-mono text-[11px] font-bold">
+              {khatmahCounts.first} أولى • {khatmahCounts.second} ثانية • {khatmahCounts.third + khatmahCounts.fourthPlus} ٣+
+            </span>
           </div>
         </div>
 
@@ -666,6 +803,266 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Dedicated Khatmeen Management & Honor Board Section */}
+      <div id="khatmeen-section" className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-200/80 shadow-md shadow-amber-900/5 space-y-6 relative overflow-hidden">
+        {/* Subtle decorative background glow */}
+        <div className="absolute top-0 right-0 w-80 h-80 rounded-full bg-amber-400/5 blur-3xl pointer-events-none"></div>
+
+        {/* Section Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-amber-100/80">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 text-white flex items-center justify-center font-bold shadow-md shadow-amber-600/20 shrink-0">
+              <Crown size={24} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 font-heading">
+                  لوحة شرف وإدارة الطلاب الخاتمين
+                </h2>
+                <span className="bg-amber-100 text-amber-900 text-xs font-black px-3 py-1 rounded-full border border-amber-300 shadow-2xs">
+                  {totalKhatmeen} طالب خاتم ({totalStudents > 0 ? Math.round((totalKhatmeen / totalStudents) * 100) : 0}%)
+                </span>
+              </div>
+              <p className="text-slate-400 text-xs mt-0.5">
+                متابعة وإدارة الطلاب الذين أتموا ختم كتاب الله عز وجل وتصنيفهم حسب الختمة مع إمكانية الترقية السريعة
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 self-start md:self-center">
+            <Link
+              to="/register"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-sm transition-all"
+            >
+              <UserPlus size={14} />
+              <span>تسجيل طالب جديد</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* Filter Pills and Search Bar */}
+        <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-4">
+          {/* Khatmah Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setKhatmahFilter('all')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                khatmahFilter === 'all'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              جميع الخاتمين ({totalKhatmeen})
+            </button>
+
+            <button
+              onClick={() => setKhatmahFilter('1')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                khatmahFilter === '1'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              <span>🥇 الختمة الأولى</span>
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${khatmahFilter === '1' ? 'bg-white/20 text-white' : 'bg-amber-200/70 text-amber-900'}`}>
+                {khatmahCounts.first}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setKhatmahFilter('2')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                khatmahFilter === '2'
+                  ? 'bg-emerald-700 text-white shadow-sm'
+                  : 'bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100'
+              }`}
+            >
+              <span>🥈 الختمة الثانية</span>
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${khatmahFilter === '2' ? 'bg-white/20 text-white' : 'bg-emerald-200/70 text-emerald-900'}`}>
+                {khatmahCounts.second}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setKhatmahFilter('3')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                khatmahFilter === '3'
+                  ? 'bg-teal-700 text-white shadow-sm'
+                  : 'bg-teal-50 text-teal-900 border border-teal-200 hover:bg-teal-100'
+              }`}
+            >
+              <span>🥉 الختمة الثالثة</span>
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${khatmahFilter === '3' ? 'bg-white/20 text-white' : 'bg-teal-200/70 text-teal-900'}`}>
+                {khatmahCounts.third}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setKhatmahFilter('4plus')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                khatmahFilter === '4plus'
+                  ? 'bg-purple-700 text-white shadow-sm'
+                  : 'bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100'
+              }`}
+            >
+              <span>👑 الختمة ٤ فأكثر</span>
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${khatmahFilter === '4plus' ? 'bg-white/20 text-white' : 'bg-purple-200/70 text-purple-900'}`}>
+                {khatmahCounts.fourthPlus}
+              </span>
+            </button>
+          </div>
+
+          {/* Quick Search in Khatmeen */}
+          <div className="relative w-full xl:w-72">
+            <Search className="absolute right-3.5 top-2.5 text-slate-400" size={16} />
+            <input
+              type="text"
+              value={khatmeenSearch}
+              onChange={(e) => setKhatmeenSearch(e.target.value)}
+              placeholder="بحث في الخاتمين (بالاسم أو الرقم)..."
+              className="w-full pr-9 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-amber-500 outline-none"
+            />
+            {khatmeenSearch && (
+              <button
+                onClick={() => setKhatmeenSearch('')}
+                className="absolute left-3 top-2.5 text-slate-400 hover:text-slate-600"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Khatmeen Students Cards Grid */}
+        {filteredKhatmeen.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredKhatmeen.map((s: any) => {
+              const khatmahNum = Number(s.khatmahCount) || 1;
+              const badgeClass = getKhatmahBadgeClass(khatmahNum);
+              return (
+                <div
+                  key={s.id}
+                  className="bg-gradient-to-br from-white via-white to-amber-50/30 rounded-2xl p-5 border border-amber-200/80 hover:border-amber-400 hover:shadow-md transition-all flex flex-col justify-between space-y-4 group"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 text-white flex items-center justify-center font-bold text-base shadow-sm ring-2 ring-amber-100 shrink-0">
+                          {s.name.charAt(0) || 'خ'}
+                        </div>
+                        <div>
+                          <Link
+                            to={`/students/${s.id}`}
+                            className="font-black text-slate-900 group-hover:text-amber-700 transition-colors text-sm font-heading"
+                          >
+                            {s.name}
+                          </Link>
+                          <div className="text-[11px] text-slate-400 font-mono mt-0.5">
+                            {s.serialNumber}
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-black px-2.5 py-1 rounded-xl border ${badgeClass}`}>
+                        <Crown size={12} className="text-amber-600" />
+                        <span>{getKhatmahLabel(khatmahNum)}</span>
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <div className="p-2 rounded-xl bg-slate-50 border border-slate-100">
+                        <div className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                          <Bookmark size={10} className="text-amber-600" />
+                          <span>نقطة البداية:</span>
+                        </div>
+                        <div className="text-slate-800 font-bold truncate mt-0.5 text-[11px]">
+                          {s.startReach ? formatPart(s.startReach) : 'بداية المصحف'}
+                        </div>
+                      </div>
+
+                      <div className="p-2 rounded-xl bg-amber-50/60 border border-amber-200/60">
+                        <div className="text-[10px] text-amber-800 font-bold flex items-center gap-1">
+                          <BookOpen size={10} className="text-amber-700" />
+                          <span>الموضع الحالي:</span>
+                        </div>
+                        <div className="text-amber-950 font-bold truncate mt-0.5 text-[11px]">
+                          {s.currentReach ? formatPart(s.currentReach) : 'المصحف الشريف'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions Toolbar */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => handlePromoteKhatmah(s)}
+                      disabled={updateKhatmahMutation.isPending}
+                      className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer shadow-2xs"
+                      title={`ترقية إلى ${getKhatmahLabel(khatmahNum + 1)}`}
+                    >
+                      <Sparkles size={12} className="text-amber-600" />
+                      <span>ترقية الختمة ({khatmahNum + 1})</span>
+                    </button>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => {
+                          setEditingKhatmahStudent(s);
+                          setEditKhatmahCount(khatmahNum);
+                        }}
+                        className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                        title="تعديل الختمة يدوياً"
+                      >
+                        <Edit2 size={13} />
+                      </button>
+
+                      {s.guardianPhone && (
+                        <button
+                          onClick={() => {
+                            const clean = s.guardianPhone.replace(/\D/g, '');
+                            const text = `السلام عليكم ورحمة الله وبركاته، نبارك لولي أمر الطالب الخاتم *${s.name}*، تحية طيبة من إدارة حلقات كُتّاب لتحفيظ القرآن الكريم. نود إعلامكم بأن الطالب حالياً في: *${getKhatmahLabel(khatmahNum)}*. نسأل الله له التوفيق والثبات والبركة.`;
+                            window.open(`https://wa.me/${clean}?text=${encodeURIComponent(text)}`, '_blank');
+                          }}
+                          className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors cursor-pointer"
+                          title="إرسال تهنئة ومتابعة عبر واتساب"
+                        >
+                          <Send size={13} />
+                        </button>
+                      )}
+
+                      <Link
+                        to={`/students/${s.id}`}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
+                      >
+                        الملف
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-8 rounded-2xl bg-amber-50/40 border border-amber-200/60 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 mx-auto flex items-center justify-center font-bold">
+              <Crown size={24} />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-bold text-slate-800">
+                {totalKhatmeen === 0
+                  ? 'لم يتم تسجيل أي طالب خاتم حتى الآن'
+                  : 'لا يوجد طلاب مطابقون لمعايير البحث في قائمة الخاتمين'}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                {totalKhatmeen === 0
+                  ? 'يمكنك تحديد حالة الختم ورقم الختمة (الأولى، الثانية، الثالثة...) لأي طالب عند تسجيله أو عبر تعديل بياناته في ملفه الشخصي.'
+                  : 'جرب تغيير تصفية الختمات أو مسح كلمة البحث لاستعراض جميع الطلاب الخاتمين.'}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Live Recent Activity Feed & Quick Actions */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between">
@@ -796,22 +1193,34 @@ export default function Dashboard() {
                     الكل ({totalStudents})
                   </button>
 
-                  {QURAN_STAGES.map((stg) => {
-                    const count = students?.filter((s: any) => getQuranStage(s.currentReach) === stg.name).length || 0;
-                    return (
-                      <button
-                        key={stg.id}
-                        onClick={() => setModalSelectedStage(stg.name)}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                          modalSelectedStage === stg.name
-                            ? 'bg-emerald-700 text-white shadow-sm'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        {stg.name} ({count})
-                      </button>
-                    );
-                  })}
+                    {QURAN_STAGES.map((stg) => {
+                      const count = students?.filter((s: any) => getQuranStage(s.currentReach) === stg.name).length || 0;
+                      return (
+                        <button
+                          key={stg.id}
+                          onClick={() => setModalSelectedStage(stg.name)}
+                          className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                            modalSelectedStage === stg.name
+                              ? 'bg-emerald-700 text-white shadow-sm'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {stg.name} ({count})
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      onClick={() => setModalSelectedStage('khatmeen')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        modalSelectedStage === 'khatmeen'
+                          ? 'bg-amber-600 text-white shadow-sm'
+                          : 'bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100'
+                      }`}
+                    >
+                      <Crown size={13} className="text-amber-500" />
+                      <span>الطلاب الخاتمون ({totalKhatmeen})</span>
+                    </button>
                 </div>
               </div>
 
@@ -870,13 +1279,28 @@ export default function Dashboard() {
                             </span>
                           </div>
                           <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2">
-                            <span className="font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200/60 text-[11px]">
-                              {stage}
-                            </span>
+                            {s.isKhatim ? (
+                              <span className="font-black text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-300 text-[11px] inline-flex items-center gap-1">
+                                <Crown size={11} className="text-amber-600" />
+                                <span>خاتم ({getKhatmahLabel(s.khatmahCount)})</span>
+                              </span>
+                            ) : (
+                              <span className="font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200/60 text-[11px]">
+                                {stage}
+                              </span>
+                            )}
                             <span>•</span>
                             <span className="text-slate-700 font-medium">
                               {s.currentReach ? formatPart(s.currentReach) : 'المستوى لم يحدد بعد'}
                             </span>
+                            {s.startReach && (
+                              <>
+                                <span>•</span>
+                                <span className="text-slate-500 text-[10px]">
+                                  البداية: {formatPart(s.startReach)}
+                                </span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -931,6 +1355,109 @@ export default function Dashboard() {
               >
                 إغلاق
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Edit Khatmah Modal */}
+      {editingKhatmahStudent && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 p-6 space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Crown size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 font-heading">تعديل ختمة الطالب</h3>
+                  <p className="text-xs text-slate-400 font-bold">{editingKhatmahStudent.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingKhatmahStudent(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-slate-700">اختر الختمة الحالية أو المنجزة:</label>
+              <div className="grid grid-cols-2 gap-2">
+                {KHATMAH_PRESETS.map((preset) => {
+                  const isSel = editKhatmahCount === preset.value;
+                  return (
+                    <button
+                      key={preset.value}
+                      type="button"
+                      onClick={() => setEditKhatmahCount(preset.value)}
+                      className={`p-3 rounded-xl text-center text-xs font-bold border transition-all cursor-pointer ${
+                        isSel
+                          ? 'bg-amber-600 text-white border-amber-700 shadow-sm'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-amber-50'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {editKhatmahCount >= 5 && (
+                <div className="flex items-center gap-3 pt-2">
+                  <label className="text-xs font-bold text-slate-700">رقم الختمة بدقة:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={editKhatmahCount}
+                    onChange={(e) => setEditKhatmahCount(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-24 h-10 px-3 rounded-xl border border-slate-200 font-bold text-center text-sm"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  updateKhatmahMutation.mutate({
+                    id: editingKhatmahStudent.id,
+                    khatmahCount: 0,
+                    isKhatim: false,
+                  });
+                }}
+                disabled={updateKhatmahMutation.isPending}
+                className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors cursor-pointer"
+              >
+                إلغاء صفة خاتم
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingKhatmahStudent(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateKhatmahMutation.mutate({
+                      id: editingKhatmahStudent.id,
+                      khatmahCount: editKhatmahCount,
+                      isKhatim: true,
+                    });
+                  }}
+                  disabled={updateKhatmahMutation.isPending}
+                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-md shadow-amber-600/20 transition-all cursor-pointer"
+                >
+                  {updateKhatmahMutation.isPending ? 'جاري الحفظ...' : 'حفظ الختمة'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

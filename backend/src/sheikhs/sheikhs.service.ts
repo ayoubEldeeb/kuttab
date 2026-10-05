@@ -121,7 +121,7 @@ export class SheikhsService implements OnModuleInit {
       orderBy: { createdAt: 'asc' },
       include: {
         _count: {
-          select: { histories: true },
+          select: { histories: true, students: true },
         },
       },
     });
@@ -134,9 +134,127 @@ export class SheikhsService implements OnModuleInit {
       role: s.role,
       isActive: s.isActive,
       recordedSessionsCount: s._count.histories,
+      assignedStudentsCount: s._count.students,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
     }));
+  }
+
+  async getSupervisionStats() {
+    const sheikhs = await this.prisma.sheikh.findMany({
+      orderBy: { createdAt: 'asc' },
+      include: {
+        students: {
+          orderBy: { name: 'asc' },
+          include: {
+            histories: {
+              orderBy: { date: 'desc' },
+              take: 20,
+            },
+          },
+        },
+        _count: {
+          select: { histories: true, students: true },
+        },
+      },
+    });
+
+    const unassignedStudents = await this.prisma.student.findMany({
+      where: { sheikhId: null },
+      orderBy: { name: 'asc' },
+      include: {
+        histories: {
+          orderBy: { date: 'desc' },
+          take: 20,
+        },
+      },
+    });
+
+    const totalStudents = await this.prisma.student.count();
+
+    const sheikhsList = sheikhs.map((s) => {
+      const studentsList = s.students.map((st) => {
+        const attendedSessions = st.histories.filter((h) => h.status !== 'لم يحضر').length;
+        const totalSessions = st.histories.length;
+        const attendanceRate = totalSessions > 0 ? Math.round((attendedSessions / totalSessions) * 100) : 100;
+        const lastSession = st.histories[0] || null;
+
+        return {
+          id: st.id,
+          serialNumber: st.serialNumber,
+          name: st.name,
+          guardianName: st.guardianName,
+          guardianPhone: st.guardianPhone,
+          currentReach: st.currentReach,
+          startReach: st.startReach,
+          isKhatim: st.isKhatim,
+          khatmahCount: st.khatmahCount,
+          attendanceRate,
+          lastActivity: lastSession ? {
+            date: lastSession.date,
+            status: lastSession.status,
+            type: lastSession.type,
+            fromPart: lastSession.fromPart,
+            toPart: lastSession.toPart,
+          } : null,
+        };
+      });
+
+      const khatmeenCount = studentsList.filter((st) => st.isKhatim).length;
+      const avgAttendance = studentsList.length > 0
+        ? Math.round(studentsList.reduce((acc, curr) => acc + curr.attendanceRate, 0) / studentsList.length)
+        : 100;
+
+      return {
+        id: s.id,
+        name: s.name,
+        username: s.username,
+        phone: s.phone,
+        role: s.role,
+        isActive: s.isActive,
+        recordedSessionsCount: s._count.histories,
+        assignedStudentsCount: s.students.length,
+        khatmeenCount,
+        averageAttendanceRate: avgAttendance,
+        students: studentsList,
+      };
+    });
+
+    const formattedUnassigned = unassignedStudents.map((st) => {
+      const attendedSessions = st.histories.filter((h) => h.status !== 'لم يحضر').length;
+      const totalSessions = st.histories.length;
+      const attendanceRate = totalSessions > 0 ? Math.round((attendedSessions / totalSessions) * 100) : 100;
+      const lastSession = st.histories[0] || null;
+
+      return {
+        id: st.id,
+        serialNumber: st.serialNumber,
+        name: st.name,
+        guardianName: st.guardianName,
+        guardianPhone: st.guardianPhone,
+        currentReach: st.currentReach,
+        startReach: st.startReach,
+        isKhatim: st.isKhatim,
+        khatmahCount: st.khatmahCount,
+        attendanceRate,
+        lastActivity: lastSession ? {
+          date: lastSession.date,
+          status: lastSession.status,
+          type: lastSession.type,
+          fromPart: lastSession.fromPart,
+          toPart: lastSession.toPart,
+        } : null,
+      };
+    });
+
+    return {
+      totalStudents,
+      assignedStudentsCount: totalStudents - unassignedStudents.length,
+      unassignedStudentsCount: unassignedStudents.length,
+      sheikhsCount: sheikhs.length,
+      sheikhs: sheikhsList,
+      unassignedStudents: formattedUnassigned,
+    };
   }
 
   async findOne(id: number) {

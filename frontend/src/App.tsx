@@ -53,7 +53,8 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
     {
       title: 'شؤون الطلاب',
       items: [
-        { path: '/students', icon: Users, label: 'دليل الطلاب', exact: false, description: 'قوائم الطلاب وتصنيف المراحل' },
+        { path: '/students', icon: Users, label: 'دليل الطلاب', exact: true, description: 'قوائم الطلاب وتصنيف المراحل' },
+        { path: '/students?tab=supervision', icon: UserCheck, label: 'إشراف ومتابعة المشايخ', exact: false, description: 'توزيع الطلاب وتتبع إنجاز المشايخ' },
         { path: '/register', icon: UserPlus, label: 'تسجيل طالب جديد', exact: false, description: 'إضافة ملف طالب للحلقة' },
       ]
     },
@@ -150,9 +151,12 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
 
               <div className="space-y-1.5">
                 {group.items.map((item) => {
-                  const isActive = item.exact 
-                    ? location.pathname === item.path 
-                    : location.pathname.startsWith(item.path);
+                  const fullPath = location.pathname + location.search;
+                  const isActive = item.path.includes('?')
+                    ? fullPath === item.path
+                    : (item.exact 
+                        ? (location.pathname === item.path && !location.search.includes('tab=')) 
+                        : location.pathname.startsWith(item.path));
 
                   return (
                     <Link 

@@ -6,7 +6,16 @@ export class StudentsController {
   constructor(private readonly studentsService: StudentsService) {}
 
   @Post()
-  create(@Body() createStudentDto: { name: string; guardianName?: string; guardianPhone?: string; currentReach?: string }) {
+  create(@Body() createStudentDto: {
+    name: string;
+    guardianName?: string;
+    guardianPhone?: string;
+    currentReach?: string;
+    startReach?: string;
+    isKhatim?: boolean;
+    khatmahCount?: number;
+    sheikhId?: number | null;
+  }) {
     return this.studentsService.create(createStudentDto);
   }
 
@@ -83,8 +92,27 @@ export class StudentsController {
     return this.studentsService.addHistory(+id, data);
   }
 
+  @Post('bulk-assign-sheikh')
+  bulkAssignSheikh(@Body() body: { sheikhId: number | null; studentIds: number[] }) {
+    return this.studentsService.bulkAssignSheikh(body);
+  }
+
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateData: { name?: string; guardianName?: string; guardianPhone?: string; currentReach?: string; currentRevisionFrom?: string; currentRevisionTo?: string; }) {
+  update(
+    @Param('id') id: string,
+    @Body() updateData: {
+      name?: string;
+      guardianName?: string;
+      guardianPhone?: string;
+      currentReach?: string;
+      currentRevisionFrom?: string;
+      currentRevisionTo?: string;
+      startReach?: string;
+      isKhatim?: boolean;
+      khatmahCount?: number;
+      sheikhId?: number | null;
+    },
+  ) {
     return this.studentsService.update(+id, updateData);
   }
 }

@@ -5,14 +5,39 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class StudentsService {
   constructor(private prisma: PrismaService) {}
 
-  async create(data: { name: string; guardianName?: string; guardianPhone?: string; currentReach?: string }) {
+  async create(data: {
+    name: string;
+    guardianName?: string;
+    guardianPhone?: string;
+    currentReach?: string;
+    startReach?: string;
+    isKhatim?: boolean;
+    khatmahCount?: number;
+    sheikhId?: number | null;
+  }) {
     const count = await this.prisma.student.count();
     const serialNumber = `STU-${String(count + 1).padStart(4, '0')}`;
     
+    const isKhatim = Boolean(data.isKhatim);
+    const khatmahCount = isKhatim ? Math.max(1, Number(data.khatmahCount) || 1) : 0;
+    const startReach = data.startReach || data.currentReach || null;
+    const currentReach = data.currentReach || data.startReach || null;
+    const sheikhId = data.sheikhId ? Number(data.sheikhId) : null;
+
     return this.prisma.student.create({
       data: {
         ...data,
+        startReach,
+        currentReach,
+        isKhatim,
+        khatmahCount,
+        sheikhId,
         serialNumber,
+      },
+      include: {
+        sheikh: {
+          select: { id: true, name: true, role: true, phone: true },
+        },
       },
     });
   }
@@ -28,6 +53,9 @@ export class StudentsService {
       return this.prisma.student.findMany({
         orderBy: { name: 'asc' },
         include: {
+          sheikh: {
+            select: { id: true, name: true, role: true, phone: true },
+          },
           histories: {
             orderBy: { date: 'desc' },
             take: 60,
@@ -43,6 +71,9 @@ export class StudentsService {
     return this.prisma.student.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
+        sheikh: {
+          select: { id: true, name: true, role: true, phone: true },
+        },
         histories: {
           orderBy: { date: 'desc' },
           take: 5,
@@ -60,6 +91,9 @@ export class StudentsService {
     return this.prisma.student.findUnique({
       where: { id },
       include: {
+        sheikh: {
+          select: { id: true, name: true, role: true, phone: true },
+        },
         histories: {
           orderBy: { date: 'desc' },
           include: {
@@ -175,11 +209,58 @@ export class StudentsService {
     });
   }
 
-  update(id: number, data: { name?: string; guardianName?: string; guardianPhone?: string; currentReach?: string; currentRevisionFrom?: string; currentRevisionTo?: string; }) {
+  update(id: number, data: {
+    name?: string;
+    guardianName?: string;
+    guardianPhone?: string;
+    currentReach?: string;
+    currentRevisionFrom?: string;
+    currentRevisionTo?: string;
+    startReach?: string;
+    isKhatim?: boolean;
+    khatmahCount?: number;
+    sheikhId?: number | null;
+  }) {
+    const cleanData: Record<string, any> = { ...data };
+    if (cleanData.isKhatim !== undefined) {
+      cleanData.isKhatim = Boolean(cleanData.isKhatim);
+      if (cleanData.isKhatim) {
+        cleanData.khatmahCount = Math.max(1, Number(cleanData.khatmahCount) || 1);
+      } else {
+        cleanData.khatmahCount = 0;
+      }
+    } else if (cleanData.khatmahCount !== undefined) {
+      cleanData.khatmahCount = Number(cleanData.khatmahCount) || 0;
+      if (cleanData.khatmahCount > 0) {
+        cleanData.isKhatim = true;
+      }
+    }
+
+    if (cleanData.sheikhId !== undefined) {
+      cleanData.sheikhId = cleanData.sheikhId ? Number(cleanData.sheikhId) : null;
+    }
+
     return this.prisma.student.update({
       where: { id },
-      data,
+      data: cleanData,
+      include: {
+        sheikh: {
+          select: { id: true, name: true, role: true, phone: true },
+        },
+      },
     });
+  }
+
+  async bulkAssignSheikh(data: { sheikhId: number | null; studentIds: number[] }) {
+    const sheikhId = data.sheikhId ? Number(data.sheikhId) : null;
+    const studentIds = Array.isArray(data.studentIds) ? data.studentIds.map(Number) : [];
+
+    const updated = await this.prisma.student.updateMany({
+      where: { id: { in: studentIds } },
+      data: { sheikhId },
+    });
+
+    return { success: true, count: updated.count, sheikhId };
   }
 
   async getStudentReport(id: number, startDateStr?: string, endDateStr?: string) {
@@ -715,8 +796,32 @@ export class StudentsService {
     });
 
     const studentsWithReach = await this.prisma.student.findMany({
-      select: { id: true, name: true, currentReach: true },
+      select: {
+        id: true,
+        name: true,
+        serialNumber: true,
+        currentReach: true,
+        startReach: true,
+        isKhatim: true,
+        khatmahCount: true,
+        guardianName: true,
+        guardianPhone: true,
+        sheikhId: true,
+        sheikh: {
+          select: { id: true, name: true, role: true },
+        },
+      },
+      orderBy: { name: 'asc' },
     });
+
+    const khatmeenStudents = studentsWithReach.filter((s) => s.isKhatim);
+    const khatmeenCount = khatmeenStudents.length;
+    const khatmeenBreakdown = {
+      first: khatmeenStudents.filter((s) => s.khatmahCount === 1).length,
+      second: khatmeenStudents.filter((s) => s.khatmahCount === 2).length,
+      third: khatmeenStudents.filter((s) => s.khatmahCount === 3).length,
+      fourthPlus: khatmeenStudents.filter((s) => s.khatmahCount >= 4).length,
+    };
 
     const getStageName = (reach: string | null): string => {
       if (!reach || reach.trim() === '' || reach === '-' || reach === 'لم يحدد' || reach === 'لم يحدد المستوى') {
@@ -816,6 +921,12 @@ export class StudentsService {
     return {
       totalStudents,
       holidayDays,
+      khatmeenStats: {
+        totalCount: khatmeenCount,
+        percentage: totalStudents > 0 ? Math.round((khatmeenCount / totalStudents) * 100) : 0,
+        breakdown: khatmeenBreakdown,
+        students: khatmeenStudents,
+      },
       today: {
         isHoliday: isTodayHoliday,
         recordedCount: todayHistories.length,

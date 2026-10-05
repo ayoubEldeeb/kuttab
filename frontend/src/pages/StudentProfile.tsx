@@ -24,7 +24,10 @@ import {
   Scroll,
   BookMarked,
   Info,
-  AlertCircle
+  AlertCircle,
+  Award,
+  Bookmark,
+  UserCheck
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -38,6 +41,7 @@ import { getQuranStage } from '../utils/quranStages';
 import { shouldShowRecitation, shouldShowWriting } from './DailyLog';
 import api from '../utils/api';
 import { useThemeAndSettings } from '../context/ThemeAndSettingsContext';
+import { KHATMAH_PRESETS, getKhatmahLabel } from '../utils/khatmahUtils';
 
 const STATUS_OPTIONS = [
   "عرض وحفظ وكتب",
@@ -76,8 +80,16 @@ export default function StudentProfile() {
   // Edit State
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({ 
-    name: '', guardianName: '', guardianPhone: '', 
-    currentReach: '', currentRevisionFrom: '', currentRevisionTo: '' 
+    name: '', 
+    guardianName: '', 
+    guardianPhone: '', 
+    startReach: '',
+    currentReach: '', 
+    isKhatim: false,
+    khatmahCount: 1,
+    sheikhId: null as number | null,
+    currentRevisionFrom: '', 
+    currentRevisionTo: '' 
   });
 
   const { data: student, isLoading } = useQuery({
@@ -88,13 +100,25 @@ export default function StudentProfile() {
     }
   });
 
+  const { data: sheikhs } = useQuery({
+    queryKey: ['sheikhs'],
+    queryFn: async () => {
+      const res = await api.get('/sheikhs');
+      return res.data;
+    }
+  });
+
   useEffect(() => {
     if (student && isEditing) {
       setEditForm({
         name: student.name || '',
         guardianName: student.guardianName || '',
         guardianPhone: student.guardianPhone || '',
+        startReach: student.startReach || '',
         currentReach: student.currentReach || '',
+        isKhatim: Boolean(student.isKhatim),
+        khatmahCount: student.khatmahCount || 1,
+        sheikhId: student.sheikhId ?? null,
         currentRevisionFrom: student.currentRevisionFrom || '',
         currentRevisionTo: student.currentRevisionTo || ''
       });
@@ -219,7 +243,13 @@ export default function StudentProfile() {
       text += `👤 *المشرف على الحلقة:* ${activeSheikh.name}\n`;
     }
     text += `📊 *تقرير المتابعة والتقدم الحالي:*\n`;
+    if (student.isKhatim) {
+      text += `👑 *صفة الطالب:* خاتم لكتاب الله تعالى (${getKhatmahLabel(student.khatmahCount)})\n`;
+    }
     text += `📖 *المرحلة القرآنية:* ${stage}\n`;
+    if (student.startReach) {
+      text += `🌱 *نقطة البداية عند الالتحاق:* ${formatPart(student.startReach)}\n`;
+    }
     text += `📌 *آخر موضع محفوظ:* ${formatPart(student.currentReach) || 'بداية المصحف'}\n`;
     if (student.currentRevisionFrom || student.currentRevisionTo) {
       text += `🔁 *ورد المراجعة:* من ${formatPart(student.currentRevisionFrom)} إلى ${formatPart(student.currentRevisionTo)}\n`;
@@ -296,14 +326,51 @@ export default function StudentProfile() {
               <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-xl text-xs font-mono font-bold border border-slate-200">
                 {student.serialNumber}
               </span>
+              {student.isKhatim && (
+                <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white text-xs font-black px-3.5 py-1 rounded-full shadow-sm inline-flex items-center gap-1.5 border border-amber-400">
+                  <Award size={14} className="text-amber-100" />
+                  <span>خاتم لكتاب الله ({getKhatmahLabel(student.khatmahCount)})</span>
+                </span>
+              )}
               <span className="bg-emerald-100/90 text-emerald-900 text-xs font-black px-3 py-1 rounded-full border border-emerald-200 inline-flex items-center gap-1.5">
                 <Layers size={13} className="text-emerald-700" />
                 <span>{stage}</span>
               </span>
+
+              {student.sheikh ? (
+                <span className="bg-indigo-50 text-indigo-900 text-xs font-bold px-3 py-1 rounded-full border border-indigo-200/80 inline-flex items-center gap-1.5 shadow-2xs">
+                  <UserCheck size={13} className="text-indigo-700" />
+                  <span>المحفظ المشرف: <strong>{student.sheikh.name}</strong></span>
+                  {student.sheikh.role && (
+                    <span className="text-[10px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded">
+                      {student.sheikh.role}
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span className="bg-slate-100 text-slate-500 text-xs font-bold px-3 py-1 rounded-full border border-slate-200 inline-flex items-center gap-1.5">
+                  <UserCheck size={13} className="text-slate-400" />
+                  <span>بدون شيخ مشرف</span>
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="text-[11px] text-emerald-700 hover:underline mr-0.5 cursor-pointer"
+                  >
+                    (إسناد مشرف)
+                  </button>
+                </span>
+              )}
             </div>
-            <p className="text-slate-400 text-xs mt-1">
-              تاريخ التسجيل: {format(new Date(student.createdAt), 'dd MMMM yyyy', { locale: ar })}
-            </p>
+            <div className="flex flex-wrap items-center gap-3 text-slate-400 text-xs mt-1">
+              <span>تاريخ التسجيل: {format(new Date(student.createdAt), 'dd MMMM yyyy', { locale: ar })}</span>
+              {student.startReach && (
+                <>
+                  <span>•</span>
+                  <span className="text-amber-700 font-medium">
+                    نقطة البداية عند الالتحاق: {formatPart(student.startReach)}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -404,9 +471,25 @@ export default function StudentProfile() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">آخر موضع محفوظ (المستوى الحالي)</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                <Bookmark size={13} className="text-amber-600" />
+                <span>موضع البداية عند الالتحاق بالحلقة (نقطة الانطلاق)</span>
+              </label>
+              <QuranSelector 
+                value={editForm.startReach}
+                onChange={val => setEditForm({...editForm, startReach: val})}
+                placeholder="حدد موضع البداية عند الالتحاق..."
+                className="text-xs"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                <BookOpen size={13} className="text-emerald-600" />
+                <span>آخر موضع محفوظ (المستوى الحالي الفعلي)</span>
+              </label>
               <QuranSelector 
                 value={editForm.currentReach}
                 onChange={val => setEditForm({...editForm, currentReach: val})}
@@ -414,7 +497,9 @@ export default function StudentProfile() {
                 className="text-xs"
               />
             </div>
+          </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">ورد المراجعة: من موضع</label>
               <QuranSelector 
@@ -434,6 +519,113 @@ export default function StudentProfile() {
                 className="text-xs"
               />
             </div>
+          </div>
+
+          {/* Khatmah Status in Edit Form */}
+          <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                <Award size={15} className="text-amber-600" />
+                <span>حالة إتمام القرآن الكريم (الختمات):</span>
+              </label>
+              {editForm.isKhatim && (
+                <span className="text-xs font-bold text-amber-800 bg-amber-100/80 px-2.5 py-0.5 rounded-lg border border-amber-300/60">
+                  {getKhatmahLabel(editForm.khatmahCount)}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setEditForm(prev => ({ ...prev, isKhatim: false, khatmahCount: 0 }))}
+                className={`p-3 rounded-xl text-right transition-all border text-xs font-bold cursor-pointer flex items-center gap-2.5 ${
+                  !editForm.isKhatim
+                    ? 'bg-slate-800 text-white border-slate-900 shadow-sm'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <span>📖</span>
+                <span>طالب قيد الحفظ (لم يختم بعد)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEditForm(prev => ({ ...prev, isKhatim: true, khatmahCount: prev.khatmahCount || 1 }))}
+                className={`p-3 rounded-xl text-right transition-all border text-xs font-bold cursor-pointer flex items-center gap-2.5 ${
+                  editForm.isKhatim
+                    ? 'bg-amber-600 text-white border-amber-700 shadow-sm'
+                    : 'bg-white text-amber-900 border-amber-200 hover:bg-amber-50/50'
+                }`}
+              >
+                <span>👑</span>
+                <span>طالب خاتم لكتاب الله تعالى</span>
+              </button>
+            </div>
+
+            {editForm.isKhatim && (
+              <div className="space-y-2 pt-2 border-t border-amber-200/60">
+                <div className="text-[11px] font-bold text-amber-900">اختر الختمة الحالية / المنجزة:</div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {KHATMAH_PRESETS.map((preset) => {
+                    const isSelected = editForm.khatmahCount === preset.value;
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => setEditForm(prev => ({ ...prev, khatmahCount: preset.value }))}
+                        className={`p-2 rounded-xl text-center text-xs font-bold transition-all border cursor-pointer ${
+                          isSelected
+                            ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50'
+                        }`}
+                      >
+                        {preset.shortLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {editForm.khatmahCount >= 5 && (
+                  <div className="flex items-center gap-2 pt-1.5">
+                    <span className="text-xs font-bold text-slate-700">رقم الختمة بدقة:</span>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={editForm.khatmahCount}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, khatmahCount: Math.max(1, parseInt(e.target.value) || 1) }))}
+                      className="w-20 h-9 rounded-xl text-center font-bold text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Supervising Sheikh in Edit Form */}
+          <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200/80 space-y-2">
+            <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+              <UserCheck size={15} className="text-indigo-700" />
+              <span>الشيخ المشرف على الطالب (المحفظ المسؤول):</span>
+            </label>
+            <select
+              value={editForm.sheikhId || ''}
+              onChange={(e) =>
+                setEditForm({
+                  ...editForm,
+                  sheikhId: e.target.value ? Number(e.target.value) : null,
+                })
+              }
+              className="w-full h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-600 outline-none cursor-pointer"
+            >
+              <option value="">بدون مشرف محدد (غير مسند حالياً)</option>
+              {sheikhs?.map((sh: any) => (
+                <option key={sh.id} value={sh.id}>
+                  {sh.name} ({sh.role || 'محفظ'}) {sh.phone ? `- ${sh.phone}` : ''}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
@@ -466,12 +658,26 @@ export default function StudentProfile() {
             </div>
           </div>
           <div>
+            {student.isKhatim && (
+              <div className="mb-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 text-[11px] font-black">
+                <Award size={12} className="text-amber-600" />
+                <span>خاتم لكتاب الله ({getKhatmahLabel(student.khatmahCount)})</span>
+              </div>
+            )}
             <div className="text-base font-black text-slate-900 leading-snug line-clamp-2">
               {student.currentReach ? formatPart(student.currentReach) : 'بداية المصحف'}
             </div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-800 text-[11px] font-bold mt-2 border border-emerald-200/60">
-              <Layers size={11} />
-              <span>المرحلة: {stage}</span>
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-800 text-[11px] font-bold border border-emerald-200/60">
+                <Layers size={11} />
+                <span>المرحلة: {stage}</span>
+              </div>
+              {student.startReach && (
+                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 text-[10px] font-bold" title="نقطة البداية عند الالتحاق">
+                  <Bookmark size={10} className="text-amber-600" />
+                  <span>البداية: {formatPart(student.startReach)}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
