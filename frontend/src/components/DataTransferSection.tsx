@@ -20,8 +20,13 @@ import { Button } from './ui/button';
 
 interface Counts {
   sheikhs: number;
+  halaqat?: number;
   students: number;
   histories: number;
+  transfers?: number;
+  disciplineActions?: number;
+  portions?: number;
+  revisionSessions?: number;
   settings: number;
 }
 
@@ -76,6 +81,11 @@ const COUNT_LABELS: Array<{ key: keyof Counts; label: string }> = [
   { key: 'students', label: 'الطلاب' },
   { key: 'histories', label: 'سجلات المتابعة' },
   { key: 'sheikhs', label: 'حسابات المشايخ' },
+  { key: 'halaqat', label: 'الحلقات' },
+  { key: 'portions', label: 'مقررات الحفظ' },
+  { key: 'revisionSessions', label: 'المراجعة والاختبارات' },
+  { key: 'disciplineActions', label: 'الإنذارات والقرارات' },
+  { key: 'transfers', label: 'سجل النقل' },
   { key: 'settings', label: 'الإعدادات' },
 ];
 
@@ -236,7 +246,7 @@ export default function DataTransferSection() {
             {COUNT_LABELS.map(({ key, label }) => (
               <div key={key} className="bg-white rounded-xl border border-slate-200/80 px-3 py-2">
                 <div className="text-[11px] text-slate-400 font-bold">{label}</div>
-                <div className="text-lg font-black text-slate-800 font-mono">{info.counts[key]}</div>
+                <div className="text-lg font-black text-slate-800 font-mono">{info.counts[key] ?? 0}</div>
               </div>
             ))}
           </div>
@@ -363,8 +373,8 @@ export default function DataTransferSection() {
                   {COUNT_LABELS.map(({ key, label }) => (
                     <tr key={key} className="border-t border-slate-100">
                       <td className="px-3 py-1.5 font-bold text-slate-700">{label}</td>
-                      <td className="px-3 py-1.5 text-center font-mono font-black text-emerald-800">{preview.incoming[key]}</td>
-                      <td className="px-3 py-1.5 text-center font-mono text-slate-500">{preview.current[key]}</td>
+                      <td className="px-3 py-1.5 text-center font-mono font-black text-emerald-800">{preview.incoming[key] ?? 0}</td>
+                      <td className="px-3 py-1.5 text-center font-mono text-slate-500">{preview.current[key] ?? 0}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -7,7 +7,7 @@
  */
 
 export const BACKUP_FORMAT = 'kittab-backup';
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 
 export interface SheikhRow {
   id: number;
@@ -34,6 +34,83 @@ export interface StudentRow {
   isKhatim: boolean;
   khatmahCount: number;
   sheikhId: number | null;
+  period: string | null;
+  halaqaId: number | null;
+  status: string;
+  dismissedAt: Date | null;
+  dailyRevisionAmount: number;
+  examRevisionJuz: number;
+  examNextFromJuz: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface HalaqaRow {
+  id: number;
+  name: string;
+  period: string;
+  sheikhId: number | null;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TransferRow {
+  id: number;
+  studentId: number;
+  date: Date;
+  fromPeriod: string | null;
+  toPeriod: string | null;
+  fromHalaqaId: number | null;
+  toHalaqaId: number | null;
+  fromHalaqaName: string | null;
+  toHalaqaName: string | null;
+  reason: string | null;
+  byName: string | null;
+  createdAt: Date;
+}
+
+export interface DisciplineRow {
+  id: number;
+  studentId: number;
+  date: Date;
+  kind: string;
+  absenceCount: number;
+  reason: string | null;
+  byId: number | null;
+  byName: string | null;
+  createdAt: Date;
+}
+
+export interface PortionRow {
+  id: number;
+  studentId: number;
+  date: Date;
+  segments: string;
+  ayahCount: number;
+  thumnAmount: number;
+  status: string;
+  notes: string | null;
+  sheikhId: number | null;
+  sheikhName: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface RevisionRow {
+  id: number;
+  studentId: number;
+  date: Date;
+  kind: string;
+  fromPart: string | null;
+  toPart: string | null;
+  amount: number;
+  fromJuz: number | null;
+  toJuz: number | null;
+  result: string;
+  notes: string | null;
+  sheikhId: number | null;
+  sheikhName: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -52,6 +129,7 @@ export interface HistoryRow {
   nextReviewTo: string | null;
   nextReviewNotes: string | null;
   status: string;
+  excused: boolean;
   notes: string | null;
   writtenParts: string | null;
   createdAt: Date;
@@ -66,17 +144,29 @@ export interface SettingRow {
 
 export interface BackupData {
   sheikhs: SheikhRow[];
+  halaqat: HalaqaRow[];
   students: StudentRow[];
   histories: HistoryRow[];
+  transfers: TransferRow[];
+  disciplineActions: DisciplineRow[];
+  portions: PortionRow[];
+  revisionSessions: RevisionRow[];
   settings: SettingRow[];
 }
 
-export interface BackupCounts {
-  sheikhs: number;
-  students: number;
-  histories: number;
-  settings: number;
-}
+export type BackupCounts = { [K in keyof BackupData]: number };
+
+export const TABLE_KEYS: (keyof BackupData)[] = [
+  'sheikhs',
+  'halaqat',
+  'students',
+  'histories',
+  'transfers',
+  'disciplineActions',
+  'portions',
+  'revisionSessions',
+  'settings',
+];
 
 export interface BackupFile {
   format: typeof BACKUP_FORMAT;
@@ -88,11 +178,10 @@ export interface BackupFile {
 }
 
 /** Raw rows as read from a source: any column may be missing or loosely typed. */
-export interface RawTables {
-  sheikhs: Record<string, unknown>[];
-  students: Record<string, unknown>[];
-  histories: Record<string, unknown>[];
-  settings: Record<string, unknown>[];
+export type RawTables = { [K in keyof BackupData]: Record<string, unknown>[] };
+
+export function emptyRaw(): RawTables {
+  return Object.fromEntries(TABLE_KEYS.map((k) => [k, []])) as unknown as RawTables;
 }
 
 export interface NormalizeResult {
@@ -132,6 +221,16 @@ function toBool(v: unknown, fallback: boolean): boolean {
   if (s === '1' || s === 'true') return true;
   if (s === '0' || s === 'false') return false;
   return fallback;
+}
+
+function toPeriod(v: unknown): string | null {
+  const s = toNullableString(v);
+  return s === 'asr' || s === 'maghrib' ? s : null;
+}
+
+function intInRange<T extends number | null>(v: unknown, min: number, max: number, fallback: T): number | T {
+  const n = toNullableInt(v);
+  return n !== null && n >= min && n <= max ? n : fallback;
 }
 
 /**
@@ -210,6 +309,33 @@ export function normalizeTables(raw: RawTables, now: Date = new Date()): Normali
     warnings.push(`${sheikhsFixedUsername} حساب شيخ بدون اسم مستخدم أو باسم مكرر، أُعطي اسم مستخدم تلقائي (مثل sheikh_5).`);
   }
 
+  // --- Halaqat
+  const halaqat: HalaqaRow[] = [];
+  const halaqaPeriods = new Map<number, string>();
+  let halaqatSkipped = 0;
+  for (const r of raw.halaqat ?? []) {
+    const id = toNullableInt(r.id);
+    if (id === null || id <= 0 || halaqaPeriods.has(id)) {
+      halaqatSkipped++;
+      continue;
+    }
+    const period = toPeriod(r.period) ?? 'asr';
+    let sheikhId = toNullableInt(r.sheikhId);
+    if (sheikhId !== null && !sheikhIds.has(sheikhId)) sheikhId = null;
+    halaqaPeriods.set(id, period);
+    const createdAt = date(r.createdAt, now);
+    halaqat.push({
+      id,
+      name: toNullableString(r.name)?.trim() || `حلقة رقم ${id}`,
+      period,
+      sheikhId,
+      notes: toNullableString(r.notes),
+      createdAt,
+      updatedAt: date(r.updatedAt, createdAt),
+    });
+  }
+  if (halaqatSkipped) warnings.push(`تم تجاهل ${halaqatSkipped} حلقة بمعرّف غير صالح أو مكرر.`);
+
   // --- Students
   const students: StudentRow[] = [];
   const studentIds = new Set<number>();
@@ -236,6 +362,11 @@ export function normalizeTables(raw: RawTables, now: Date = new Date()): Normali
       sheikhId = null;
       studentsUnlinked++;
     }
+    let halaqaId = toNullableInt(r.halaqaId);
+    if (halaqaId !== null && !halaqaPeriods.has(halaqaId)) halaqaId = null;
+    // A student in a halaqa always shares its period.
+    const period = halaqaId !== null ? halaqaPeriods.get(halaqaId)! : toPeriod(r.period);
+    const status = toNullableString(r.status) === 'dismissed' ? 'dismissed' : 'active';
     serials.add(serialNumber);
     studentIds.add(id);
     const createdAt = date(r.createdAt, now);
@@ -253,6 +384,13 @@ export function normalizeTables(raw: RawTables, now: Date = new Date()): Normali
       isKhatim: toBool(r.isKhatim, false),
       khatmahCount,
       sheikhId,
+      period,
+      halaqaId,
+      status,
+      dismissedAt: status === 'dismissed' ? parseDate(r.dismissedAt) ?? now : null,
+      dailyRevisionAmount: intInRange(r.dailyRevisionAmount, 1, 40, 4),
+      examRevisionJuz: intInRange(r.examRevisionJuz, 1, 30, 3),
+      examNextFromJuz: intInRange(r.examNextFromJuz, 1, 30, null),
       createdAt,
       updatedAt: date(r.updatedAt, createdAt),
     });
@@ -299,6 +437,7 @@ export function normalizeTables(raw: RawTables, now: Date = new Date()): Normali
       nextReviewTo: toNullableString(r.nextReviewTo),
       nextReviewNotes: toNullableString(r.nextReviewNotes),
       status: toNullableString(r.status)?.trim() || 'غير محدد',
+      excused: toBool(r.excused, false),
       notes: toNullableString(r.notes),
       writtenParts: toNullableString(r.writtenParts),
       createdAt,
@@ -310,6 +449,103 @@ export function normalizeTables(raw: RawTables, now: Date = new Date()): Normali
   if (historiesSheikhUnlinked) {
     warnings.push(`${historiesSheikhUnlinked} سجل متابعة مرتبط بشيخ غير موجود، حُفظ اسم الشيخ وفُك الارتباط.`);
   }
+
+  // --- Records that belong to a student (dropped when the student is missing)
+  let childOrphans = 0;
+  const childRows = <T>(rows: Record<string, unknown>[] | undefined, build: (r: Record<string, unknown>, id: number, studentId: number, createdAt: Date) => T | null): T[] => {
+    const out: T[] = [];
+    const ids = new Set<number>();
+    for (const r of rows ?? []) {
+      const id = toNullableInt(r.id);
+      const studentId = toNullableInt(r.studentId);
+      if (id === null || id <= 0 || ids.has(id)) continue;
+      if (studentId === null || !studentIds.has(studentId)) {
+        childOrphans++;
+        continue;
+      }
+      const row = build(r, id, studentId, date(r.createdAt, now));
+      if (row) {
+        ids.add(id);
+        out.push(row);
+      }
+    }
+    return out;
+  };
+
+  const transfers = childRows<TransferRow>(raw.transfers, (r, id, studentId, createdAt) => ({
+    id,
+    studentId,
+    date: date(r.date, createdAt),
+    fromPeriod: toPeriod(r.fromPeriod),
+    toPeriod: toPeriod(r.toPeriod),
+    fromHalaqaId: toNullableInt(r.fromHalaqaId),
+    toHalaqaId: toNullableInt(r.toHalaqaId),
+    fromHalaqaName: toNullableString(r.fromHalaqaName),
+    toHalaqaName: toNullableString(r.toHalaqaName),
+    reason: toNullableString(r.reason),
+    byName: toNullableString(r.byName),
+    createdAt,
+  }));
+
+  const DISCIPLINE = ['warning', 'pardon', 'dismissal', 'reinstatement'];
+  const disciplineActions = childRows<DisciplineRow>(raw.disciplineActions, (r, id, studentId, createdAt) => {
+    const kind = toNullableString(r.kind) ?? '';
+    if (!DISCIPLINE.includes(kind)) return null;
+    return {
+      id,
+      studentId,
+      date: date(r.date, createdAt),
+      kind,
+      absenceCount: Math.max(0, toNullableInt(r.absenceCount) ?? 0),
+      reason: toNullableString(r.reason),
+      byId: toNullableInt(r.byId),
+      byName: toNullableString(r.byName),
+      createdAt,
+    };
+  });
+
+  const portions = childRows<PortionRow>(raw.portions, (r, id, studentId, createdAt) => {
+    const segments = toNullableString(r.segments);
+    if (!segments) return null;
+    return {
+      id,
+      studentId,
+      date: date(r.date, createdAt),
+      segments,
+      ayahCount: Math.max(0, toNullableInt(r.ayahCount) ?? 0),
+      thumnAmount: Math.max(0, Number(r.thumnAmount) || 0),
+      status: toNullableString(r.status) || 'جاري',
+      notes: toNullableString(r.notes),
+      sheikhId: toNullableInt(r.sheikhId),
+      sheikhName: toNullableString(r.sheikhName),
+      createdAt,
+      updatedAt: date(r.updatedAt, createdAt),
+    };
+  });
+
+  const revisionSessions = childRows<RevisionRow>(raw.revisionSessions, (r, id, studentId, createdAt) => {
+    const kind = toNullableString(r.kind);
+    const result = toNullableString(r.result);
+    if ((kind !== 'daily' && kind !== 'exam') || !result) return null;
+    return {
+      id,
+      studentId,
+      date: date(r.date, createdAt),
+      kind,
+      fromPart: toNullableString(r.fromPart),
+      toPart: toNullableString(r.toPart),
+      amount: Math.max(0, Number(r.amount) || 0),
+      fromJuz: intInRange(r.fromJuz, 1, 30, null),
+      toJuz: intInRange(r.toJuz, 1, 30, null),
+      result,
+      notes: toNullableString(r.notes),
+      sheikhId: toNullableInt(r.sheikhId),
+      sheikhName: toNullableString(r.sheikhName),
+      createdAt,
+      updatedAt: date(r.updatedAt, createdAt),
+    };
+  });
+  if (childOrphans) warnings.push(`تم تجاهل ${childOrphans} سجل (نقل/إنذار/حفظ/مراجعة) لطالب غير موجود.`);
 
   // --- Settings (key is the identity; numeric ids are not preserved)
   const settingsByKey = new Map<string, SettingRow>();
@@ -323,7 +559,17 @@ export function normalizeTables(raw: RawTables, now: Date = new Date()): Normali
     });
   }
 
-  const data: BackupData = { sheikhs, students, histories, settings: [...settingsByKey.values()] };
+  const data: BackupData = {
+    sheikhs,
+    halaqat,
+    students,
+    histories,
+    transfers,
+    disciplineActions,
+    portions,
+    revisionSessions,
+    settings: [...settingsByKey.values()],
+  };
 
   if (!data.sheikhs.length && !data.students.length && !data.histories.length) {
     throw new BackupValidationError('الملف لا يحتوي على أي بيانات (لا مشايخ ولا طلاب ولا سجلات).');
@@ -340,12 +586,7 @@ export function normalizeTables(raw: RawTables, now: Date = new Date()): Normali
 }
 
 export function countsOf(data: BackupData): BackupCounts {
-  return {
-    sheikhs: data.sheikhs.length,
-    students: data.students.length,
-    histories: data.histories.length,
-    settings: data.settings.length,
-  };
+  return Object.fromEntries(TABLE_KEYS.map((k) => [k, data[k].length])) as BackupCounts;
 }
 
 export function buildBackupFile(data: BackupData, exportedAt: Date = new Date()): BackupFile {
@@ -382,12 +623,8 @@ export function parseBackupJson(text: string): { raw: RawTables; exportedAt: str
   }
   const arr = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
   return {
-    raw: {
-      sheikhs: arr(d.sheikhs),
-      students: arr(d.students),
-      histories: arr(d.histories),
-      settings: arr(d.settings),
-    },
+    // Version 1 files have no halaqat/transfers/discipline/portions/revisions: those come back empty.
+    raw: Object.fromEntries(TABLE_KEYS.map((k) => [k, arr(d[k])])) as RawTables,
     exportedAt: typeof parsed.exportedAt === 'string' ? parsed.exportedAt : null,
   };
 }

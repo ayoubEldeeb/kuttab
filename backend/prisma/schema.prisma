@@ -9,8 +9,8 @@ datasource db {
 }
 
 model Student {
-  id                  Int       @id @default(autoincrement())
-  serialNumber        String    @unique
+  id                  Int                   @id @default(autoincrement())
+  serialNumber        String                @unique
   name                String
   guardianName        String?
   guardianPhone       String?
@@ -18,52 +18,154 @@ model Student {
   currentRevisionFrom String?
   currentRevisionTo   String?
   startReach          String?
-  isKhatim            Boolean   @default(false)
-  khatmahCount        Int       @default(0)
+  isKhatim            Boolean               @default(false)
+  khatmahCount        Int                   @default(0)
   sheikhId            Int?
-  sheikh              Sheikh?   @relation(fields: [sheikhId], references: [id])
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  sheikh              Sheikh?               @relation(fields: [sheikhId], references: [id])
+  // Teaching period: "asr" (العصر - المغرب) or "maghrib" (المغرب - العشاء)
+  period              String?
+  halaqaId            Int?
+  halaqa              Halaqa?               @relation(fields: [halaqaId], references: [id], onDelete: SetNull)
+  // "active" or "dismissed" (archived after dismissal; history is kept)
+  status              String                @default("active")
+  dismissedAt         DateTime?
+  // Daily revision amount in athman, and Saturday revision exam amount in ajza
+  dailyRevisionAmount Int                   @default(4)
+  examRevisionJuz     Int                   @default(3)
+  examNextFromJuz     Int?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
   histories           History[]
+  transfers           StudentTransfer[]
+  disciplineActions   DisciplineAction[]
+  portions            MemorizationPortion[]
+  revisionSessions    RevisionSession[]
+}
+
+model Halaqa {
+  id        Int       @id @default(autoincrement())
+  name      String
+  period    String
+  sheikhId  Int?
+  sheikh    Sheikh?   @relation(fields: [sheikhId], references: [id], onDelete: SetNull)
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  students  Student[]
+}
+
+/// Log of every move of a student between periods / halaqat.
+model StudentTransfer {
+  id             Int      @id @default(autoincrement())
+  studentId      Int
+  student        Student  @relation(fields: [studentId], references: [id])
+  date           DateTime @default(now())
+  fromPeriod     String?
+  toPeriod       String?
+  fromHalaqaId   Int?
+  toHalaqaId     Int?
+  fromHalaqaName String?
+  toHalaqaName   String?
+  reason         String?
+  byName         String?
+  createdAt      DateTime @default(now())
+}
+
+/// Disciplinary decisions: "warning", "pardon" (absences reviewed, no warning),
+/// "dismissal" and "reinstatement".
+model DisciplineAction {
+  id           Int      @id @default(autoincrement())
+  studentId    Int
+  student      Student  @relation(fields: [studentId], references: [id])
+  date         DateTime @default(now())
+  kind         String
+  absenceCount Int      @default(0)
+  reason       String?
+  byId         Int?
+  byName       String?
+  createdAt    DateTime @default(now())
+}
+
+/// A new memorization portion (usually recorded once a week), as ayah ranges.
+model MemorizationPortion {
+  id          Int      @id @default(autoincrement())
+  studentId   Int
+  student     Student  @relation(fields: [studentId], references: [id])
+  date        DateTime
+  /// JSON array of { surah, fromAyah, toAyah }
+  segments    String
+  ayahCount   Int      @default(0)
+  thumnAmount Float    @default(0)
+  /// "جاري" (in progress) | "أتقن" (mastered) | "لم يتقن" (not mastered)
+  status      String   @default("جاري")
+  notes       String?
+  sheikhId    Int?
+  sheikhName  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Daily revision ("daily") or the weekly revision exam ("exam").
+model RevisionSession {
+  id         Int      @id @default(autoincrement())
+  studentId  Int
+  student    Student  @relation(fields: [studentId], references: [id])
+  date       DateTime
+  kind       String
+  fromPart   String?
+  toPart     String?
+  amount     Float    @default(0)
+  fromJuz    Int?
+  toJuz      Int?
+  /// daily: "أتقن" | "لم يتقن"; exam: "ممتاز" | "جيد جداً" | "جيد" | "مقبول" | "لم يجتز"
+  result     String
+  notes      String?
+  sheikhId   Int?
+  sheikhName String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Sheikh {
-  id          Int       @id @default(autoincrement())
-  name        String
-  username    String?   @unique
-  password    String?
-  phone       String?
-  role        String    @default("محفظ") // "مشرف عام", "شيخ مقرئ", "محفظ حلقة", "مساعد"
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  students    Student[]
-  histories   History[]
+  id        Int       @id @default(autoincrement())
+  name      String
+  username  String?   @unique
+  password  String?
+  phone     String?
+  role      String    @default("محفظ") // "مشرف عام", "شيخ مقرئ", "محفظ حلقة", "مساعد"
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  students  Student[]
+  histories History[]
+  halaqat   Halaqa[]
 }
 
 model History {
-  id              Int       @id @default(autoincrement())
-  studentId       Int
-  student         Student   @relation(fields: [studentId], references: [id])
-  sheikhId        Int?
-  sheikhName      String?
-  sheikh          Sheikh?   @relation(fields: [sheikhId], references: [id])
-  date            DateTime  @default(now())
-  
-  type            String?
-  fromPart        String?
-  toPart          String?
-  
+  id         Int      @id @default(autoincrement())
+  studentId  Int
+  student    Student  @relation(fields: [studentId], references: [id])
+  sheikhId   Int?
+  sheikhName String?
+  sheikh     Sheikh?  @relation(fields: [sheikhId], references: [id])
+  date       DateTime @default(now())
+
+  type     String?
+  fromPart String?
+  toPart   String?
+
   nextReviewDate  DateTime?
   nextReviewFrom  String?
   nextReviewTo    String?
   nextReviewNotes String?
 
-  status          String
-  notes           String?
-  writtenParts    String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  status       String
+  /// For absences: true = absent with permission (بإذن)
+  excused      Boolean  @default(false)
+  notes        String?
+  writtenParts String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model SystemSetting {

@@ -19,7 +19,9 @@ import {
   Sparkles, 
   MessageSquare,
   ShieldCheck,
-  CheckCheck
+  CheckCheck,
+  ShieldAlert,
+  FileCheck2
 } from 'lucide-react';
 import { format, subDays, addDays } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -28,6 +30,16 @@ import api from '../utils/api';
 import { useThemeAndSettings } from '../context/ThemeAndSettingsContext';
 import { QURAN_STAGES, getQuranStage } from '../utils/quranStages';
 import { formatPart } from '../utils/formatPart';
+import DisciplineDecisionModal from '../components/DisciplineDecisionModal';
+import {
+  PERIODS,
+  apiError,
+  invalidateDiscipline,
+  matchesPlacement,
+  useDisciplineAlerts,
+  useHalaqat,
+  type DisciplineState,
+} from '../utils/program';
 
 type AttendanceStatus = 'all' | 'attended' | 'absent' | 'unrecorded';
 
@@ -43,6 +55,15 @@ export default function DailyAttendance() {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [isBulkConfirmOpen, setIsBulkConfirmOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [periodFilter, setPeriodFilter] = useState('all');
+  const [halaqaFilter, setHalaqaFilter] = useState('all');
+  const [decision, setDecision] = useState<{ student: any; state: DisciplineState } | null>(null);
+  const { data: halaqat = [] } = useHalaqat();
+  const { data: disciplineAlerts = [] } = useDisciplineAlerts();
+  const alertByStudent = useMemo(
+    () => new Map(disciplineAlerts.map((a) => [a.student.id, a.state] as const)),
+    [disciplineAlerts],
+  );
 
   const holidayInfo = getHolidayInfo(selectedDate);
   const isSelectedDateHoliday = holidayInfo.isHoliday;
@@ -59,17 +80,18 @@ export default function DailyAttendance() {
 
   // Single attendance mutation with optimistic update
   const attendanceMutation = useMutation({
-    mutationFn: async ({ studentId, status }: { studentId: number; status: string }) => {
+    mutationFn: async ({ studentId, status, excused = false }: { studentId: number; status: string; excused?: boolean }) => {
       const res = await api.post('/students/attendance/record', {
         studentId,
         date: selectedDate,
         status,
+        excused,
         sheikhId: activeSheikh?.id || undefined,
         sheikhName: activeSheikh?.name || undefined,
       });
       return res.data;
     },
-    onMutate: async ({ studentId, status }) => {
+    onMutate: async ({ studentId, status, excused = false }) => {
       await queryClient.cancelQueries({ queryKey: ['students', selectedDate] });
       const previousStudents = queryClient.getQueryData(['students', selectedDate]);
 
@@ -83,9 +105,13 @@ export default function DailyAttendance() {
           
           let updatedHistories = [...existingHistories];
           if (existingIndex >= 0) {
+            const prev = updatedHistories[existingIndex];
+            // Presence never replaces a recorded recitation on the server either.
+            const keepRecitation = status === 'حاضر' && prev.status !== 'لم يحضر';
             updatedHistories[existingIndex] = {
-              ...updatedHistories[existingIndex],
-              status,
+              ...prev,
+              status: keepRecitation ? prev.status : status,
+              excused: status === 'لم يحضر' ? excused : false,
               sheikhName: activeSheikh?.name || updatedHistories[existingIndex].sheikhName,
             };
           } else {
@@ -94,6 +120,7 @@ export default function DailyAttendance() {
               studentId,
               date: selectedDate,
               status,
+              excused: status === 'لم يحضر' ? excused : false,
               type: 'حضور',
               sheikhName: activeSheikh?.name,
             });
@@ -108,19 +135,28 @@ export default function DailyAttendance() {
 
       return { previousStudents };
     },
-    onError: (_err, _variables, context) => {
+    onError: (err, _variables, context) => {
       if (context?.previousStudents) {
         queryClient.setQueryData(['students', selectedDate], context.previousStudents);
       }
-      toast.error('حدث خطأ أثناء حفظ حالة الحضور');
+      toast.error(apiError(err, 'حدث خطأ أثناء حفظ حالة الحضور'));
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       if (variables.status === 'حاضر') {
         toast.success('تم تسجيل الحضور بنجاح', { duration: 1200 });
+      } else if (variables.excused) {
+        toast('تم تسجيل الغياب بإذن (لا يُحتسب في الإنذارات)', { duration: 1800, icon: '📝' });
       } else {
-        toast.error('تم تسجيل الغياب', { duration: 1200, icon: '⚠️' });
+        toast.error('تم تسجيل الغياب بدون إذن', { duration: 1500, icon: '⚠️' });
       }
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      invalidateDiscipline(queryClient, variables.studentId);
+      // The app proposes; the sheikh decides.
+      const state: DisciplineState | undefined = data?.discipline;
+      if (state?.alert && variables.status === 'لم يحضر' && !variables.excused) {
+        const student = students.find((s: any) => s.id === variables.studentId);
+        if (student) setDecision({ student, state });
+      }
     },
   });
 
@@ -180,7 +216,7 @@ export default function DailyAttendance() {
       if (todayHistory) {
         if (todayHistory.status === 'لم يحضر') {
           state = 'absent';
-          statusText = 'غائب (لم يحضر)';
+          statusText = todayHistory.excused ? 'غائب بإذن' : 'غائب بدون إذن';
         } else {
           state = 'attended';
           statusText = todayHistory.status;
@@ -202,23 +238,29 @@ export default function DailyAttendance() {
         hasAcademicActivity,
         academicDescription,
         stage,
+        isExcused: state === 'absent' && !!todayHistory?.excused,
+        discipline: alertByStudent.get(student.id) ?? null,
       };
     });
-  }, [students, selectedDate]);
+  }, [students, selectedDate, alertByStudent]);
 
   // Statistics calculation
+  const scopedStudents = useMemo(
+    () => processedStudents.filter((s: any) => matchesPlacement(s, periodFilter, halaqaFilter)),
+    [processedStudents, periodFilter, halaqaFilter],
+  );
   const stats = useMemo(() => {
-    const total = processedStudents.length;
-    const attended = processedStudents.filter((s: any) => s.attendanceState === 'attended').length;
-    const absent = processedStudents.filter((s: any) => s.attendanceState === 'absent').length;
-    const unrecorded = processedStudents.filter((s: any) => s.attendanceState === 'unrecorded').length;
+    const total = scopedStudents.length;
+    const attended = scopedStudents.filter((s: any) => s.attendanceState === 'attended').length;
+    const absent = scopedStudents.filter((s: any) => s.attendanceState === 'absent').length;
+    const unrecorded = scopedStudents.filter((s: any) => s.attendanceState === 'unrecorded').length;
     
     const recorded = attended + absent;
     const attendanceRate = total > 0 ? Math.round((attended / total) * 100) : 0;
     const progressRate = total > 0 ? Math.round((recorded / total) * 100) : 0;
 
     return { total, attended, absent, unrecorded, attendanceRate, progressRate, recorded };
-  }, [processedStudents]);
+  }, [scopedStudents]);
 
   // Filtered students list
   const filteredStudents = useMemo(() => {
@@ -234,9 +276,9 @@ export default function DailyAttendance() {
       const matchesStage = 
         stageFilter === 'all' ? true : s.stage === stageFilter;
 
-      return matchesSearch && matchesStatus && matchesStage;
+      return matchesSearch && matchesStatus && matchesStage && matchesPlacement(s, periodFilter, halaqaFilter);
     });
-  }, [processedStudents, search, statusFilter, stageFilter]);
+  }, [processedStudents, search, statusFilter, stageFilter, periodFilter, halaqaFilter]);
 
   // Helper date shortcuts
   const handleSetToday = () => {
@@ -262,7 +304,7 @@ export default function DailyAttendance() {
 
   // Mark all present
   const handleMarkAllPresent = () => {
-    const allIds = processedStudents.map((s: any) => s.id);
+    const allIds = scopedStudents.map((s: any) => s.id);
     if (allIds.length === 0) return;
     bulkMutation.mutate({ studentIds: allIds, status: 'حاضر' });
   };
@@ -609,8 +651,35 @@ export default function DailyAttendance() {
             </button>
           </div>
 
-          {/* Stage Dropdown Filter */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Period / Halaqa / Stage Filters */}
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <select
+              value={periodFilter}
+              onChange={(e) => {
+                setPeriodFilter(e.target.value);
+                setHalaqaFilter('all');
+              }}
+              className="bg-slate-50 border border-slate-200 text-xs font-bold rounded-xl px-3 py-1.5 text-slate-700 outline-none hover:bg-white transition-colors cursor-pointer"
+            >
+              <option value="all">كل الفترات</option>
+              {PERIODS.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+              <option value="none">بدون فترة</option>
+            </select>
+            <select
+              value={halaqaFilter}
+              onChange={(e) => setHalaqaFilter(e.target.value)}
+              className="bg-slate-50 border border-slate-200 text-xs font-bold rounded-xl px-3 py-1.5 text-slate-700 outline-none hover:bg-white transition-colors cursor-pointer"
+            >
+              <option value="all">كل الحلقات</option>
+              {halaqat
+                .filter((h) => periodFilter === 'all' || h.period === periodFilter)
+                .map((h) => (
+                  <option key={h.id} value={h.id}>{h.name}</option>
+                ))}
+              <option value="none">بدون حلقة</option>
+            </select>
             <span className="text-xs text-slate-400 font-bold hidden sm:inline">المرحلة:</span>
             <select
               value={stageFilter}
@@ -640,7 +709,7 @@ export default function DailyAttendance() {
               تأكيد تحضير جميع الطلاب
             </h3>
             <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-              هل أنت متأكد من تسجيل جميع طلاب الحلقة (عدد: {stats.total}) كـ <strong className="text-emerald-700">«حاضر»</strong> لتاريخ <strong>{selectedDate}</strong>؟
+              هل أنت متأكد من تسجيل جميع الطلاب المعروضين (عدد: {stats.total}) كـ <strong className="text-emerald-700">«حاضر»</strong> لتاريخ <strong>{selectedDate}</strong>؟
               <br />
               يمكنك بعد ذلك تعديل أي طالب غائب بشكل فردي بنقرة واحدة.
             </p>
@@ -819,38 +888,64 @@ export default function DailyAttendance() {
 
                 {/* Card Bottom: Big Clear Action Buttons */}
                 <div className="pt-4 mt-4 border-t border-slate-100 space-y-2">
-                  <div className="grid grid-cols-2 gap-2.5">
-                    
-                    {/* Present Button (حاضر) */}
+                  <div className="grid grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={() => attendanceMutation.mutate({ studentId: student.id, status: 'حاضر' })}
                       disabled={attendanceMutation.isPending}
-                      className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl text-xs font-black transition-all cursor-pointer active:scale-95 ${
+                      className={`flex items-center justify-center gap-1.5 py-3 px-2 rounded-2xl text-xs font-black transition-all cursor-pointer active:scale-95 ${
                         isAttended
                           ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-700/25 ring-2 ring-emerald-400'
-                          : 'bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-slate-200'
+                          : 'bg-slate-100 text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 border border-slate-200'
                       }`}
                     >
-                      <Check size={16} className={isAttended ? 'stroke-[3]' : ''} />
+                      <Check size={15} className={isAttended ? 'stroke-[3]' : ''} />
                       <span>حاضر</span>
                     </button>
-
-                    {/* Absent Button (لم يحضر) */}
                     <button
                       type="button"
-                      onClick={() => attendanceMutation.mutate({ studentId: student.id, status: 'لم يحضر' })}
+                      onClick={() => attendanceMutation.mutate({ studentId: student.id, status: 'لم يحضر', excused: true })}
                       disabled={attendanceMutation.isPending}
-                      className={`flex items-center justify-center gap-2 py-3 px-3 rounded-2xl text-xs font-black transition-all cursor-pointer active:scale-95 ${
-                        isAbsent
-                          ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-700/25 ring-2 ring-rose-400'
-                          : 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-300 border border-slate-200'
+                      title="غياب بعذر — لا يُحتسب في الإنذارات"
+                      className={`flex items-center justify-center gap-1.5 py-3 px-2 rounded-2xl text-xs font-black transition-all cursor-pointer active:scale-95 ${
+                        isAbsent && student.isExcused
+                          ? 'bg-sky-600 hover:bg-sky-700 text-white shadow-md shadow-sky-700/25 ring-2 ring-sky-400'
+                          : 'bg-slate-100 text-slate-700 hover:bg-sky-50 hover:text-sky-800 border border-slate-200'
                       }`}
                     >
-                      <X size={16} className={isAbsent ? 'stroke-[3]' : ''} />
-                      <span>لم يحضر</span>
+                      <FileCheck2 size={15} />
+                      <span>غائب بإذن</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => attendanceMutation.mutate({ studentId: student.id, status: 'لم يحضر', excused: false })}
+                      disabled={attendanceMutation.isPending}
+                      title="غياب بدون عذر — يُحتسب في الإنذارات"
+                      className={`flex items-center justify-center gap-1.5 py-3 px-2 rounded-2xl text-xs font-black transition-all cursor-pointer active:scale-95 ${
+                        isAbsent && !student.isExcused
+                          ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-700/25 ring-2 ring-rose-400'
+                          : 'bg-slate-100 text-slate-700 hover:bg-rose-50 hover:text-rose-800 border border-slate-200'
+                      }`}
+                    >
+                      <X size={15} className={isAbsent && !student.isExcused ? 'stroke-[3]' : ''} />
+                      <span>بدون إذن</span>
                     </button>
                   </div>
+
+                  {student.discipline?.alert && (
+                    <button
+                      type="button"
+                      onClick={() => setDecision({ student, state: student.discipline })}
+                      className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-black cursor-pointer border ${
+                        student.discipline.alert.suggestion === 'dismissal'
+                          ? 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
+                          : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+                      }`}
+                    >
+                      <ShieldAlert size={14} />
+                      {student.discipline.alert.title} — اتخاذ قرار
+                    </button>
+                  )}
 
                   {/* Reset single student button (only if already recorded) */}
                   {!isUnrecorded && (
@@ -925,6 +1020,8 @@ export default function DailyAttendance() {
                         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black ${
                           isAttended 
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                            : isAbsent && student.isExcused
+                            ? 'bg-sky-100 text-sky-800 border border-sky-300'
                             : isAbsent 
                             ? 'bg-rose-100 text-rose-800 border border-rose-300' 
                             : 'bg-amber-100 text-amber-800 border border-amber-300'
@@ -950,15 +1047,36 @@ export default function DailyAttendance() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => attendanceMutation.mutate({ studentId: student.id, status: 'لم يحضر' })}
-                            className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                              isAbsent
+                            onClick={() => attendanceMutation.mutate({ studentId: student.id, status: 'لم يحضر', excused: true })}
+                            className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                              isAbsent && student.isExcused
+                                ? 'bg-sky-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-700 hover:bg-sky-100 hover:text-sky-800'
+                            }`}
+                          >
+                            بإذن
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => attendanceMutation.mutate({ studentId: student.id, status: 'لم يحضر', excused: false })}
+                            className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                              isAbsent && !student.isExcused
                                 ? 'bg-rose-600 text-white shadow-xs'
                                 : 'bg-slate-100 text-slate-700 hover:bg-rose-100 hover:text-rose-800'
                             }`}
                           >
-                            لم يحضر
+                            بدون إذن
                           </button>
+                          {student.discipline?.alert && (
+                            <button
+                              type="button"
+                              onClick={() => setDecision({ student, state: student.discipline })}
+                              className="p-2 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer"
+                              title={student.discipline.alert.title}
+                            >
+                              <ShieldAlert size={15} />
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td className="p-4 text-center">
@@ -997,6 +1115,10 @@ export default function DailyAttendance() {
             </table>
           </div>
         </div>
+      )}
+
+      {decision && (
+        <DisciplineDecisionModal student={decision.student} state={decision.state} onClose={() => setDecision(null)} />
       )}
 
       {/* Floating Bottom Action Bar for Quick Summary & Halaqah Finish */}

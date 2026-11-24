@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import api from '../utils/api';
 import { KHATMAH_PRESETS, getKhatmahLabel } from '../utils/khatmahUtils';
+import { PERIODS, apiError, useHalaqat, type PeriodId } from '../utils/program';
 
 export default function RegisterStudent() {
   const [formData, setFormData] = useState({
@@ -32,7 +33,12 @@ export default function RegisterStudent() {
     isKhatim: false,
     khatmahCount: 1,
     sheikhId: null as number | null,
+    period: '' as PeriodId | '',
+    halaqaId: null as number | null,
   });
+  const { data: halaqat = [] } = useHalaqat();
+  const periodHalaqat = halaqat.filter((h) => h.period === formData.period);
+  const chosenHalaqa = halaqat.find((h) => h.id === formData.halaqaId);
 
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -55,17 +61,18 @@ export default function RegisterStudent() {
 
   const mutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const res = await api.post('/students', data);
+      const res = await api.post('/students', { ...data, period: data.period || null });
       return res.data;
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['students'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['halaqat'] });
       toast.success('تم تسجيل الطالب بنجاح في نظام كُتّاب');
       navigate(`/students/${data.id}`);
     },
-    onError: () => {
-      toast.error('حدث خطأ أثناء تسجيل الطالب');
+    onError: (err) => {
+      toast.error(apiError(err, 'حدث خطأ أثناء تسجيل الطالب'));
     },
   });
 
@@ -410,29 +417,77 @@ export default function RegisterStudent() {
           )}
         </div>
 
-        {/* Section 4: Supervising Sheikh */}
+        {/* Section 4: Period, halaqa and supervising sheikh */}
         <div className="bg-white p-6 md:p-7 rounded-3xl shadow-sm border border-slate-200/80 space-y-4">
           <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
             <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center font-bold">
               <UserCheck size={18} />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900 font-heading">الشيخ المشرف على الطالب (المحفظ المسؤول)</h3>
-              <p className="text-[11px] text-slate-400">إسناد الطالب لمحفظ أو مقرئ لمتابعة تسميعه وورده القرآني</p>
+              <h3 className="text-base font-bold text-slate-900 font-heading">الفترة والحلقة والشيخ المسؤول</h3>
+              <p className="text-[11px] text-slate-400">اختيار الحلقة يحدد الفترة والشيخ تلقائياً، ويمكن النقل لاحقاً مع توثيقه</p>
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-700">اختر الشيخ المشرف</label>
+            <label className="text-xs font-bold text-slate-700">الفترة</label>
+            <div className="grid grid-cols-3 gap-2">
+              {[{ id: '' as const, name: 'لاحقاً', range: 'بدون فترة الآن' }, ...PERIODS].map((p) => (
+                <button
+                  key={p.id || 'none'}
+                  type="button"
+                  onClick={() => setFormData((prev) => ({ ...prev, period: p.id, halaqaId: null }))}
+                  className={`p-3 rounded-2xl border text-right transition-all cursor-pointer ${
+                    formData.period === p.id
+                      ? 'bg-emerald-700 border-emerald-700 text-white shadow-md'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-emerald-50'
+                  }`}
+                >
+                  <div className="text-xs font-black">{p.name}</div>
+                  <div className={`text-[10px] ${formData.period === p.id ? 'text-emerald-100' : 'text-slate-400'}`}>{p.range}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {formData.period && (
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-700">الحلقة</label>
+              <select
+                value={formData.halaqaId || ''}
+                onChange={(e) => {
+                  const id = e.target.value ? Number(e.target.value) : null;
+                  const h = halaqat.find((x) => x.id === id);
+                  setFormData((prev) => ({ ...prev, halaqaId: id, sheikhId: h ? h.sheikhId : prev.sheikhId }));
+                }}
+                className="w-full h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-600 focus:bg-white outline-none cursor-pointer"
+              >
+                <option value="">بدون حلقة حالياً</option>
+                {periodHalaqat.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                    {h.sheikh ? ` — ${h.sheikh.name}` : ''} ({h.studentsCount} طالب)
+                  </option>
+                ))}
+              </select>
+              {!periodHalaqat.length && (
+                <p className="text-[11px] text-amber-700">لا توجد حلقات في هذه الفترة بعد؛ تُضاف من صفحة «الفترات والحلقات».</p>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-700">الشيخ المشرف</label>
             <select
               value={formData.sheikhId || ''}
+              disabled={!!chosenHalaqa}
               onChange={(e) =>
                 setFormData((prev) => ({
                   ...prev,
                   sheikhId: e.target.value ? Number(e.target.value) : null,
                 }))
               }
-              className="w-full h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-600 focus:bg-white outline-none cursor-pointer"
+              className="w-full h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-emerald-600/30 focus:border-emerald-600 focus:bg-white outline-none cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
             >
               <option value="">بدون تحديد مشرف حالياً (توزيع لاحق من دليل الطلاب والإشراف)</option>
               {sheikhs?.map((sh: any) => (
@@ -442,7 +497,9 @@ export default function RegisterStudent() {
               ))}
             </select>
             <p className="text-[11px] text-slate-400">
-              💡 يمكنك فرز وتتبع إنجاز طلاب كل شيخ بدقة من خلال تبويب «متابعة وإشراف المشايخ»
+              {chosenHalaqa
+                ? `💡 شيخ ${chosenHalaqa.name} هو المسؤول عن الطالب تلقائياً`
+                : '💡 يمكنك فرز وتتبع إنجاز طلاب كل شيخ بدقة من خلال تبويب «متابعة وإشراف المشايخ»'}
             </p>
           </div>
         </div>

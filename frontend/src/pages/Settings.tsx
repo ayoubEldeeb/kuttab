@@ -24,6 +24,7 @@ import toast from 'react-hot-toast';
 import { useThemeAndSettings, type AppTheme, type FontSize, WEEK_DAYS } from '../context/ThemeAndSettingsContext';
 import { useAuth } from '../context/AuthContext';
 import DataTransferSection from '../components/DataTransferSection';
+import ProgramSettingsSection from '../components/ProgramSettingsSection';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -204,6 +205,9 @@ export default function Settings() {
           </Link>
         )}
       </div>
+
+      {/* Center rules: absences, warnings, week and revision */}
+      <ProgramSettingsSection canEdit={isAdmin} />
 
       {/* 1. Font Size Section */}
       <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200/80 space-y-6">

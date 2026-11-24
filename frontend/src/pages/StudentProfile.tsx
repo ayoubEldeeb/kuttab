@@ -42,6 +42,10 @@ import { shouldShowRecitation, shouldShowWriting } from './DailyLog';
 import api from '../utils/api';
 import { useThemeAndSettings } from '../context/ThemeAndSettingsContext';
 import { KHATMAH_PRESETS, getKhatmahLabel } from '../utils/khatmahUtils';
+import StudentProgramPanel from '../components/StudentProgramPanel';
+import TransferDialog from '../components/TransferDialog';
+import { apiError, periodName, suggestsAsrMove } from '../utils/program';
+import { ArrowLeftRight, UserX } from 'lucide-react';
 
 const STATUS_OPTIONS = [
   "عرض وحفظ وكتب",
@@ -89,8 +93,11 @@ export default function StudentProfile() {
     khatmahCount: 1,
     sheikhId: null as number | null,
     currentRevisionFrom: '', 
-    currentRevisionTo: '' 
+    currentRevisionTo: '',
+    dailyRevisionAmount: 4,
+    examRevisionJuz: 3,
   });
+  const [isTransferOpen, setIsTransferOpen] = useState(false);
 
   const { data: student, isLoading } = useQuery({
     queryKey: ['student', id],
@@ -120,7 +127,9 @@ export default function StudentProfile() {
         khatmahCount: student.khatmahCount || 1,
         sheikhId: student.sheikhId ?? null,
         currentRevisionFrom: student.currentRevisionFrom || '',
-        currentRevisionTo: student.currentRevisionTo || ''
+        currentRevisionTo: student.currentRevisionTo || '',
+        dailyRevisionAmount: student.dailyRevisionAmount ?? 4,
+        examRevisionJuz: student.examRevisionJuz ?? 3,
       });
     }
   }, [student, isEditing]);
@@ -182,8 +191,8 @@ export default function StudentProfile() {
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       setIsEditing(false);
     },
-    onError: () => {
-      toast.error('حدث خطأ أثناء تحديث بيانات الطالب');
+    onError: (err) => {
+      toast.error(apiError(err, 'حدث خطأ أثناء تحديث بيانات الطالب'));
     }
   });
 
@@ -337,6 +346,23 @@ export default function StudentProfile() {
                 <span>{stage}</span>
               </span>
 
+              <button
+                onClick={() => student.status !== 'dismissed' && setIsTransferOpen(true)}
+                className="bg-white text-slate-700 text-xs font-bold px-3 py-1 rounded-full border border-slate-200 inline-flex items-center gap-1.5 hover:border-indigo-300 hover:bg-indigo-50 cursor-pointer"
+                title="نقل الطالب إلى فترة أو حلقة أخرى"
+              >
+                <ArrowLeftRight size={13} className="text-indigo-600" />
+                <span>
+                  {periodName(student.period)}
+                  {student.halaqa ? ` · ${student.halaqa.name}` : ''}
+                </span>
+              </button>
+              {suggestsAsrMove(student) && (
+                <span className="bg-amber-100 text-amber-900 text-xs font-black px-3 py-1 rounded-full border border-amber-200">
+                  وصل إلى المجادلة — مؤهل للانتقال إلى العصر
+                </span>
+              )}
+
               {student.sheikh ? (
                 <span className="bg-indigo-50 text-indigo-900 text-xs font-bold px-3 py-1 rounded-full border border-indigo-200/80 inline-flex items-center gap-1.5 shadow-2xs">
                   <UserCheck size={13} className="text-indigo-700" />
@@ -419,6 +445,17 @@ export default function StudentProfile() {
           </button>
         </div>
       </div>
+
+      {student.status === 'dismissed' && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 flex items-center gap-3">
+          <UserX size={22} className="text-rose-600 shrink-0" />
+          <div className="text-sm">
+            <strong>الطالب مفصول</strong>
+            {student.dismissedAt ? ` منذ ${format(new Date(student.dismissedAt), 'dd MMMM yyyy', { locale: ar })}` : ''}. سجلاته محفوظة، ويمكن
+            للمشرف العام إعادته من قسم «الغياب والإنذارات» أدناه.
+          </div>
+        </div>
+      )}
 
       {/* Edit Student Info Card (Active when isEditing) */}
       {isEditing && (
@@ -603,6 +640,33 @@ export default function StudentProfile() {
             )}
           </div>
 
+          {/* Revision plan in Edit Form */}
+          <div className="p-4 rounded-2xl bg-teal-50/50 border border-teal-200/80 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-teal-950">المراجعة اليومية (عدد الأثمان)</label>
+              <input
+                type="number"
+                min={1}
+                max={40}
+                value={editForm.dailyRevisionAmount}
+                onChange={(e) => setEditForm({ ...editForm, dailyRevisionAmount: Number(e.target.value) })}
+                className="w-full h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-teal-950">اختبار السبت (عدد الأجزاء)</label>
+              <select
+                value={editForm.examRevisionJuz}
+                onChange={(e) => setEditForm({ ...editForm, examRevisionJuz: Number(e.target.value) })}
+                className="w-full h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-bold outline-none cursor-pointer"
+              >
+                {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+                  <option key={n} value={n}>{n} أجزاء</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           {/* Supervising Sheikh in Edit Form */}
           <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200/80 space-y-2">
             <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
@@ -765,6 +829,8 @@ export default function StudentProfile() {
           </div>
         </div>
       </div>
+
+      <StudentProgramPanel student={student} />
 
       {/* Attendance & Activity Heatmap (Last 14 Days) */}
       <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200/80 space-y-4">
@@ -1316,6 +1382,13 @@ export default function StudentProfile() {
           </div>
         </div>
       </div>
+      {isTransferOpen && (
+        <TransferDialog
+          students={[student]}
+          initialPeriod={suggestsAsrMove(student) ? 'asr' : undefined}
+          onClose={() => setIsTransferOpen(false)}
+        />
+      )}
     </div>
   );
 }

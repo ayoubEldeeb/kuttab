@@ -1,9 +1,25 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { DisciplineService } from '../discipline/discipline.service.js';
+import { isPeriodId } from '../common/periods.js';
+
+const STUDENT_INCLUDE = {
+  sheikh: { select: { id: true, name: true, role: true, phone: true } },
+  halaqa: { select: { id: true, name: true, period: true, sheikhId: true } },
+} as const;
+
+/** "active" (default), "dismissed", or "all". */
+function statusWhere(status?: string) {
+  if (status === 'all') return {};
+  return { status: status === 'dismissed' ? 'dismissed' : 'active' };
+}
 
 @Injectable()
 export class StudentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private discipline: DisciplineService,
+  ) {}
 
   async create(data: {
     name: string;
@@ -14,69 +30,72 @@ export class StudentsService {
     isKhatim?: boolean;
     khatmahCount?: number;
     sheikhId?: number | null;
+    period?: string | null;
+    halaqaId?: number | null;
   }) {
-    const count = await this.prisma.student.count();
-    const serialNumber = `STU-${String(count + 1).padStart(4, '0')}`;
-    
+    // Next free serial: robust to gaps and to data imported from another device.
+    const serials = await this.prisma.student.findMany({ select: { serialNumber: true } });
+    const used = new Set(serials.map((x) => x.serialNumber));
+    let next = serials.length + 1;
+    while (used.has(`STU-${String(next).padStart(4, '0')}`)) next++;
+    const serialNumber = `STU-${String(next).padStart(4, '0')}`;
+
+    // A halaqa decides the period and the sheikh.
+    let period: string | null = data.period ?? null;
+    let halaqaId: number | null = data.halaqaId ? Number(data.halaqaId) : null;
+    let halaqaSheikhId: number | null = null;
+    if (halaqaId) {
+      const halaqa = await this.prisma.halaqa.findUnique({ where: { id: halaqaId } });
+      if (!halaqa) throw new BadRequestException('الحلقة المختارة غير موجودة');
+      period = halaqa.period;
+      halaqaSheikhId = halaqa.sheikhId;
+    }
+    if (period !== null && !isPeriodId(period)) throw new BadRequestException('الفترة غير صحيحة');
+
     const isKhatim = Boolean(data.isKhatim);
     const khatmahCount = isKhatim ? Math.max(1, Number(data.khatmahCount) || 1) : 0;
     const startReach = data.startReach || data.currentReach || null;
     const currentReach = data.currentReach || data.startReach || null;
-    const sheikhId = data.sheikhId ? Number(data.sheikhId) : null;
+    const sheikhId = halaqaSheikhId ?? (data.sheikhId ? Number(data.sheikhId) : null);
+
+    // New students start with the center's default revision amounts.
+    const defaults = await this.prisma.systemSetting.findMany({
+      where: { key: { in: ['defaultDailyRevisionAmount', 'defaultExamRevisionJuz'] } },
+    });
+    const defaultOf = (key: string, fallback: number) => {
+      const n = Number(defaults.find((d) => d.key === key)?.value);
+      return Number.isInteger(n) && n > 0 ? n : fallback;
+    };
 
     return this.prisma.student.create({
       data: {
-        ...data,
+        name: data.name,
+        guardianName: data.guardianName,
+        guardianPhone: data.guardianPhone,
         startReach,
         currentReach,
         isKhatim,
         khatmahCount,
         sheikhId,
+        period,
+        halaqaId,
         serialNumber,
+        dailyRevisionAmount: defaultOf('defaultDailyRevisionAmount', 4),
+        examRevisionJuz: defaultOf('defaultExamRevisionJuz', 3),
       },
-      include: {
-        sheikh: {
-          select: { id: true, name: true, role: true, phone: true },
-        },
-      },
+      include: STUDENT_INCLUDE,
     });
   }
 
-  findAll(date?: string) {
-    if (date) {
-      const startOfDay = new Date(date);
-      startOfDay.setUTCHours(0, 0, 0, 0);
-      
-      const endOfDay = new Date(date);
-      endOfDay.setUTCHours(23, 59, 59, 999);
-
-      return this.prisma.student.findMany({
-        orderBy: { name: 'asc' },
-        include: {
-          sheikh: {
-            select: { id: true, name: true, role: true, phone: true },
-          },
-          histories: {
-            orderBy: { date: 'desc' },
-            take: 60,
-            include: {
-              sheikh: {
-                select: { id: true, name: true, role: true },
-              },
-            },
-          },
-        },
-      });
-    }
+  findAll(date?: string, status?: string) {
     return this.prisma.student.findMany({
-      orderBy: { createdAt: 'desc' },
+      where: statusWhere(status),
+      orderBy: date ? { name: 'asc' } : { createdAt: 'desc' },
       include: {
-        sheikh: {
-          select: { id: true, name: true, role: true, phone: true },
-        },
+        ...STUDENT_INCLUDE,
         histories: {
           orderBy: { date: 'desc' },
-          take: 5,
+          take: date ? 60 : 5,
           include: {
             sheikh: {
               select: { id: true, name: true, role: true },
@@ -91,9 +110,7 @@ export class StudentsService {
     return this.prisma.student.findUnique({
       where: { id },
       include: {
-        sheikh: {
-          select: { id: true, name: true, role: true, phone: true },
-        },
+        ...STUDENT_INCLUDE,
         histories: {
           orderBy: { date: 'desc' },
           include: {
@@ -136,6 +153,8 @@ export class StudentsService {
 
     const updateData: Record<string, any> = {
       status: data.status,
+      // "excused" only describes absences; any other status clears it.
+      ...(data.status !== 'لم يحضر' ? { excused: false } : {}),
       notes: data.notes,
       type: data.type,
       fromPart: data.fromPart,
@@ -220,8 +239,27 @@ export class StudentsService {
     isKhatim?: boolean;
     khatmahCount?: number;
     sheikhId?: number | null;
+    dailyRevisionAmount?: number;
+    examRevisionJuz?: number;
+    examNextFromJuz?: number | null;
   }) {
-    const cleanData: Record<string, any> = { ...data };
+    // Period / halaqa / status change only through transfers and discipline actions (they are logged).
+    const { period: _p, halaqaId: _h, status: _s, dismissedAt: _d, ...rest } = data as Record<string, any>;
+    const cleanData: Record<string, any> = { ...rest };
+    const intIn = (v: unknown, min: number, max: number, label: string) => {
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < min || n > max) throw new BadRequestException(`${label} يجب أن يكون بين ${min} و${max}`);
+      return n;
+    };
+    if (cleanData.dailyRevisionAmount !== undefined) {
+      cleanData.dailyRevisionAmount = intIn(cleanData.dailyRevisionAmount, 1, 40, 'مقدار المراجعة اليومية (بالأثمان)');
+    }
+    if (cleanData.examRevisionJuz !== undefined) {
+      cleanData.examRevisionJuz = intIn(cleanData.examRevisionJuz, 1, 30, 'مقدار اختبار المراجعة (بالأجزاء)');
+    }
+    if (cleanData.examNextFromJuz !== undefined && cleanData.examNextFromJuz !== null) {
+      cleanData.examNextFromJuz = intIn(cleanData.examNextFromJuz, 1, 30, 'جزء بداية الاختبار');
+    }
     if (cleanData.isKhatim !== undefined) {
       cleanData.isKhatim = Boolean(cleanData.isKhatim);
       if (cleanData.isKhatim) {
@@ -243,11 +281,7 @@ export class StudentsService {
     return this.prisma.student.update({
       where: { id },
       data: cleanData,
-      include: {
-        sheikh: {
-          select: { id: true, name: true, role: true, phone: true },
-        },
-      },
+      include: STUDENT_INCLUDE,
     });
   }
 
@@ -347,6 +381,7 @@ export class StudentsService {
     let holidayDaysCount = 0;
     let attendedDaysCount = 0;
     let absentDaysCount = 0;
+    let excusedAbsentDaysCount = 0;
     let memorizedPortionsCount = 0;
     let writtenThumnsCount = 0;
     let writtenAyahsCount = 0;
@@ -414,9 +449,10 @@ export class StudentsService {
         sheikhName = history.sheikhName || history.sheikh?.name || '';
 
         if (history.status === 'لم يحضر') {
-          attendanceStatus = 'لم يحضر';
+          attendanceStatus = history.excused ? 'غائب بإذن' : 'غائب بدون إذن';
           attendanceType = 'absent';
           absentDaysCount++;
+          if (history.excused) excusedAbsentDaysCount++;
         } else {
           attendanceStatus = 'حاضر';
           attendanceType = 'attended';
@@ -560,7 +596,7 @@ export class StudentsService {
         activityBadgeColor = 'amber';
       } else if (attendanceType === 'absent') {
         activityType = 'absent';
-        activityLabel = 'غائب (لم يحضر)';
+        activityLabel = history?.excused ? 'غائب بإذن' : 'غائب بدون إذن';
         activityBadgeColor = 'rose';
       } else if (attendanceType === 'attended') {
         const didReciteSuccessfully = recitationInfo.didRecite && history?.status !== 'عرض ولم يحفظ' && history?.status !== 'لم يحفظ';
@@ -657,6 +693,8 @@ export class StudentsService {
       stats: {
         attendedDays: attendedDaysCount,
         absentDays: absentDaysCount,
+        excusedAbsentDays: excusedAbsentDaysCount,
+        unexcusedAbsentDays: absentDaysCount - excusedAbsentDaysCount,
         holidayDays: holidayDaysCount,
         attendanceRate,
         daysMemorizedAndWritten: daysMemorizedAndWrittenCount,
@@ -677,7 +715,7 @@ export class StudentsService {
   }
 
   async getDashboardStats() {
-    const totalStudents = await this.prisma.student.count();
+    const totalStudents = await this.prisma.student.count({ where: { status: 'active' } });
 
     // Fetch holiday setting
     const holidaySetting = await this.prisma.systemSetting.findUnique({
@@ -796,6 +834,7 @@ export class StudentsService {
     });
 
     const studentsWithReach = await this.prisma.student.findMany({
+      where: { status: 'active' },
       select: {
         id: true,
         name: true,
@@ -957,14 +996,27 @@ export class StudentsService {
     };
   }
 
+  /**
+   * Records attendance for one day. "لم يحضر" with excused=true is an absence
+   * with permission. Marking a student present never overwrites a recitation
+   * already recorded for that day.
+   */
   async recordAttendance(data: {
     studentId: number;
     date: string;
     status: string; // 'حاضر' | 'لم يحضر'
+    excused?: boolean;
     sheikhId?: number;
     sheikhName?: string;
     notes?: string;
   }) {
+    if (data.status !== 'حاضر' && data.status !== 'لم يحضر') {
+      throw new BadRequestException('حالة الحضور غير صحيحة');
+    }
+    const student = await this.prisma.student.findUnique({ where: { id: data.studentId }, select: { status: true } });
+    if (!student) throw new BadRequestException('الطالب غير موجود');
+    if (student.status !== 'active') throw new BadRequestException('لا يمكن تسجيل الحضور لطالب مفصول.');
+
     const targetDate = new Date(data.date);
     const startOfDay = new Date(targetDate);
     startOfDay.setUTCHours(0, 0, 0, 0);
@@ -978,37 +1030,56 @@ export class StudentsService {
       },
     });
 
-    const resolvedType = (existing && existing.type && existing.type !== 'حضور') ? existing.type : 'حضور';
+    const excused = data.status === 'لم يحضر' && Boolean(data.excused);
+    let history;
+    if (data.status === 'حاضر' && existing && existing.status !== 'لم يحضر') {
+      // Already present (possibly with recitation details): keep the record as it is.
+      history = existing;
+    } else if (existing && existing.status === 'لم يحضر' && data.status === 'لم يحضر' && existing.excused === excused) {
+      // Same absence recorded again: leave it untouched so it is not counted twice.
+      history = existing;
+    } else {
+      const resolvedType = existing && existing.type && existing.type !== 'حضور' && data.status !== 'لم يحضر' ? existing.type : 'حضور';
+      history = await this.addHistory(data.studentId, {
+        date: data.date,
+        status: data.status,
+        type: resolvedType,
+        sheikhId: data.sheikhId,
+        sheikhName: data.sheikhName,
+        notes: data.notes,
+      });
+      if (history.excused !== excused) {
+        history = await this.prisma.history.update({ where: { id: history.id }, data: { excused } });
+      }
+    }
 
-    return this.addHistory(data.studentId, {
-      date: data.date,
-      status: data.status,
-      type: resolvedType,
-      sheikhId: data.sheikhId,
-      sheikhName: data.sheikhName,
-      notes: data.notes,
-    });
+    const discipline = await this.discipline.stateFor(data.studentId);
+    return { ...history, discipline };
   }
 
   async bulkRecordAttendance(data: {
     date: string;
     studentIds: number[];
     status: string;
+    excused?: boolean;
     sheikhId?: number;
     sheikhName?: string;
   }) {
-    const results = [];
-    for (const studentId of data.studentIds) {
-      const res = await this.recordAttendance({
-        studentId,
+    const active = await this.prisma.student.findMany({
+      where: { id: { in: (data.studentIds || []).map(Number) }, status: 'active' },
+      select: { id: true },
+    });
+    for (const { id } of active) {
+      await this.recordAttendance({
+        studentId: id,
         date: data.date,
         status: data.status,
+        excused: data.excused,
         sheikhId: data.sheikhId,
         sheikhName: data.sheikhName,
       });
-      results.push(res);
     }
-    return { count: results.length, success: true };
+    return { count: active.length, success: true };
   }
 
   async resetAttendance(data: { date: string; studentIds?: number[] }) {

@@ -13,6 +13,7 @@ import {
   BackupValidationError,
   RawTables,
   buildBackupFile,
+  emptyRaw,
   countsOf,
   isSqliteFile,
   normalizeTables,
@@ -45,6 +46,19 @@ interface UploadedFile {
 const DEFAULT_PASSWORD = '123456';
 const CHUNK = 200;
 
+/** Backup key → Prisma delegate and SQL table, in insert order (parents first). */
+const TABLES: { key: keyof BackupData; model: string; table: string }[] = [
+  { key: 'sheikhs', model: 'sheikh', table: 'Sheikh' },
+  { key: 'halaqat', model: 'halaqa', table: 'Halaqa' },
+  { key: 'students', model: 'student', table: 'Student' },
+  { key: 'histories', model: 'history', table: 'History' },
+  { key: 'transfers', model: 'studentTransfer', table: 'StudentTransfer' },
+  { key: 'disciplineActions', model: 'disciplineAction', table: 'DisciplineAction' },
+  { key: 'portions', model: 'memorizationPortion', table: 'MemorizationPortion' },
+  { key: 'revisionSessions', model: 'revisionSession', table: 'RevisionSession' },
+  { key: 'settings', model: 'systemSetting', table: 'SystemSetting' },
+];
+
 @Injectable()
 export class BackupService {
   private readonly logger = new Logger(BackupService.name);
@@ -70,13 +84,9 @@ export class BackupService {
   }
 
   async getCurrentCounts(): Promise<BackupCounts> {
-    const [sheikhs, students, histories, settings] = await Promise.all([
-      this.prisma.sheikh.count(),
-      this.prisma.student.count(),
-      this.prisma.history.count(),
-      this.prisma.systemSetting.count(),
-    ]);
-    return { sheikhs, students, histories, settings };
+    const db = this.prisma as any;
+    const counts = await Promise.all(TABLES.map((t) => db[t.model].count()));
+    return Object.fromEntries(TABLES.map((t, i) => [t.key, counts[i]])) as BackupCounts;
   }
 
   async getInfo() {
@@ -91,18 +101,12 @@ export class BackupService {
   // ------------------------------------------------------------------ export
 
   async readCurrentData(): Promise<BackupData> {
-    const [sheikhs, students, histories, settings] = await Promise.all([
-      this.prisma.sheikh.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.student.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.history.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.systemSetting.findMany({ orderBy: { id: 'asc' } }),
-    ]);
-    return {
-      sheikhs,
-      students,
-      histories,
-      settings: settings.map(({ key, value, updatedAt }) => ({ key, value, updatedAt })),
-    };
+    const db = this.prisma as any;
+    const rows = await Promise.all(TABLES.map((t) => db[t.model].findMany({ orderBy: { id: 'asc' } })));
+    const data = Object.fromEntries(TABLES.map((t, i) => [t.key, rows[i]])) as BackupData;
+    // Settings are identified by key; their numeric ids are not exported.
+    data.settings = data.settings.map(({ key, value, updatedAt }) => ({ key, value, updatedAt }));
+    return data;
   }
 
   async exportBackup(): Promise<BackupFile> {
@@ -138,39 +142,28 @@ export class BackupService {
 
     await this.prisma.$transaction(
       async (tx) => {
-        await tx.history.deleteMany();
-        await tx.student.deleteMany();
-        await tx.sheikh.deleteMany();
-        await tx.systemSetting.deleteMany();
+        const db = tx as any;
+        // Children first, so no foreign key is ever left dangling.
+        for (const t of [...TABLES].reverse()) await db[t.model].deleteMany();
 
-        for (let i = 0; i < data.sheikhs.length; i += CHUNK) {
-          await tx.sheikh.createMany({ data: data.sheikhs.slice(i, i + CHUNK) });
-        }
-        for (let i = 0; i < data.students.length; i += CHUNK) {
-          await tx.student.createMany({ data: data.students.slice(i, i + CHUNK) });
-        }
-        for (let i = 0; i < data.histories.length; i += CHUNK) {
-          await tx.history.createMany({ data: data.histories.slice(i, i + CHUNK) });
-        }
-        for (let i = 0; i < data.settings.length; i += CHUNK) {
-          await tx.systemSetting.createMany({ data: data.settings.slice(i, i + CHUNK) });
+        for (const t of TABLES) {
+          const rows = data[t.key] as unknown[];
+          for (let i = 0; i < rows.length; i += CHUNK) {
+            await db[t.model].createMany({ data: rows.slice(i, i + CHUNK) });
+          }
         }
 
         if (this.isPostgres) {
           // Explicit ids were inserted, so move each sequence past the max id.
-          for (const table of ['Sheikh', 'Student', 'History', 'SystemSetting']) {
+          for (const { table } of TABLES) {
             await tx.$executeRawUnsafe(
               `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1, false)`,
             );
           }
         }
 
-        const after = {
-          sheikhs: await tx.sheikh.count(),
-          students: await tx.student.count(),
-          histories: await tx.history.count(),
-          settings: await tx.systemSetting.count(),
-        };
+        const counts = await Promise.all(TABLES.map((t) => db[t.model].count()));
+        const after = Object.fromEntries(TABLES.map((t, i) => [t.key, counts[i]]));
         const expected = countsOf(data);
         if (JSON.stringify(after) !== JSON.stringify(expected)) {
           // Throwing rolls the whole transaction back.
@@ -292,12 +285,9 @@ export class BackupService {
         return client.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT ${select} FROM "${table}"`);
       };
 
-      return {
-        sheikhs: await readTable('Sheikh'),
-        students: await readTable('Student'),
-        histories: await readTable('History'),
-        settings: await readTable('SystemSetting'),
-      };
+      const raw = emptyRaw();
+      for (const t of TABLES) raw[t.key] = await readTable(t.table);
+      return raw;
     } catch (err) {
       if (err instanceof BackupValidationError) throw err;
       this.logger.error(`Failed to read uploaded database: ${(err as Error)?.message}`);

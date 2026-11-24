@@ -2,6 +2,7 @@ import {
   BACKUP_FORMAT,
   BackupValidationError,
   buildBackupFile,
+  emptyRaw,
   isSqliteFile,
   normalizeTables,
   parseBackupJson,
@@ -12,7 +13,7 @@ import {
 const NOW = new Date('2026-11-24T10:00:00.000Z');
 
 function raw(partial: Partial<RawTables>): RawTables {
-  return { sheikhs: [], students: [], histories: [], settings: [], ...partial };
+  return { ...emptyRaw(), ...partial };
 }
 
 describe('parseDate', () => {
@@ -162,7 +163,7 @@ describe('backup file round trip', () => {
     );
     const file = buildBackupFile(data, NOW);
     expect(file.format).toBe(BACKUP_FORMAT);
-    expect(file.counts).toEqual({ sheikhs: 1, students: 1, histories: 1, settings: 1 });
+    expect(file.counts).toMatchObject({ sheikhs: 1, students: 1, histories: 1, settings: 1 });
 
     const text = JSON.stringify(file);
     const reparsed = normalizeTables(parseBackupJson(text).raw, NOW).data;
@@ -190,5 +191,61 @@ describe('isSqliteFile', () => {
   it('detects the SQLite header', () => {
     expect(isSqliteFile(Buffer.from('SQLite format 3\u0000rest', 'latin1'))).toBe(true);
     expect(isSqliteFile(Buffer.from('{"format":"kittab-backup"}'))).toBe(false);
+  });
+});
+
+describe('version 2 tables', () => {
+  const base = {
+    sheikhs: [{ id: 1, name: 'ش', username: 'admin', password: 'p', role: 'مشرف عام' }],
+    halaqat: [
+      { id: 1, name: 'حلقة الشيخ أحمد', period: 'asr', sheikhId: 1, notes: 'ملاحظة' },
+      { id: 2, name: 'حلقة بلا شيخ', period: 'maghrib', sheikhId: 99 },
+    ],
+    students: [
+      // halaqa decides the period even if the stored period disagrees
+      { id: 1, serialNumber: 'A', name: 'أ', halaqaId: 1, period: 'maghrib', status: 'dismissed', dailyRevisionAmount: 6 },
+      { id: 2, serialNumber: 'B', name: 'ب', halaqaId: 77, period: 'maghrib', dailyRevisionAmount: 999 },
+    ],
+    histories: [{ id: 1, studentId: 1, status: 'لم يحضر', excused: 1 }],
+    transfers: [{ id: 1, studentId: 1, fromPeriod: 'maghrib', toPeriod: 'asr', toHalaqaId: 1 }],
+    disciplineActions: [
+      { id: 1, studentId: 1, kind: 'warning' },
+      { id: 2, studentId: 1, kind: 'bogus' },
+      { id: 3, studentId: 42, kind: 'warning' },
+    ],
+    portions: [{ id: 1, studentId: 2, segments: '[{"surah":78,"fromAyah":5,"toAyah":10}]', ayahCount: 6, thumnAmount: 0.4 }],
+    revisionSessions: [
+      { id: 1, studentId: 2, kind: 'daily', result: 'أتقن', fromPart: 'x' },
+      { id: 2, studentId: 2, kind: 'exam', result: 'جيد', fromJuz: 28, toJuz: 30 },
+      { id: 3, studentId: 2, kind: 'other', result: 'x' },
+    ],
+  };
+
+  it('normalizes halaqat, student program fields and child records', () => {
+    const { data, warnings } = normalizeTables(raw(base), NOW);
+    expect(data.halaqat.map((h) => h.sheikhId)).toEqual([1, null]);
+    expect(data.students[0]).toMatchObject({ halaqaId: 1, period: 'asr', status: 'dismissed', dailyRevisionAmount: 6 });
+    expect(data.students[0].dismissedAt).toEqual(NOW);
+    expect(data.students[1]).toMatchObject({ halaqaId: null, period: 'maghrib', status: 'active', dailyRevisionAmount: 4 });
+    expect(data.histories[0].excused).toBe(true);
+    expect(data.transfers).toHaveLength(1);
+    expect(data.disciplineActions.map((a) => a.id)).toEqual([1]);
+    expect(data.portions[0]).toMatchObject({ ayahCount: 6, status: 'جاري' });
+    expect(data.revisionSessions.map((r) => r.kind)).toEqual(['daily', 'exam']);
+    expect(warnings.join('\n')).toContain('لطالب غير موجود');
+  });
+
+  it('round-trips every table through a backup file', () => {
+    const { data } = normalizeTables(raw(base), NOW);
+    const reparsed = normalizeTables(parseBackupJson(JSON.stringify(buildBackupFile(data, NOW))).raw, NOW).data;
+    expect(reparsed).toEqual(data);
+  });
+
+  it('still reads version 1 files (new tables empty)', () => {
+    const v1 = { format: BACKUP_FORMAT, version: 1, data: { students: [{ id: 1, serialNumber: '1', name: 'a' }] } };
+    const { data } = normalizeTables(parseBackupJson(JSON.stringify(v1)).raw, NOW);
+    expect(data.students[0]).toMatchObject({ period: null, halaqaId: null, status: 'active', dailyRevisionAmount: 4, examRevisionJuz: 3 });
+    expect(data.halaqat).toEqual([]);
+    expect(data.portions).toEqual([]);
   });
 });

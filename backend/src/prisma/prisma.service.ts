@@ -60,6 +60,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
     }
   }
 
+  /** Adds a column to an existing SQLite table only when it is missing. */
+  private async ensureColumn(table: string, column: string, definition: string) {
+    const cols = await this.$queryRawUnsafe<{ name: string }[]>(`SELECT name FROM pragma_table_info('${table}')`);
+    if (!cols.some((c) => c.name === column)) {
+      await this.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition};`);
+      this.logger.log(`Added column ${table}.${column}`);
+    }
+  }
+
   private async ensureSchema() {
     try {
       await this.$executeRawUnsafe(`
@@ -80,19 +89,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
         );
       `);
 
-      // Safely ensure new columns exist for existing databases
-      try {
-        await this.$executeRawUnsafe('ALTER TABLE "Student" ADD COLUMN "startReach" TEXT;');
-      } catch {}
-      try {
-        await this.$executeRawUnsafe('ALTER TABLE "Student" ADD COLUMN "isKhatim" BOOLEAN NOT NULL DEFAULT 0;');
-      } catch {}
-      try {
-        await this.$executeRawUnsafe('ALTER TABLE "Student" ADD COLUMN "khatmahCount" INTEGER NOT NULL DEFAULT 0;');
-      } catch {}
-      try {
-        await this.$executeRawUnsafe('ALTER TABLE "Student" ADD COLUMN "sheikhId" INTEGER;');
-      } catch {}
+      // Columns added after the first desktop release; existing databases get them on startup.
+      await this.ensureColumn('Student', 'startReach', 'TEXT');
+      await this.ensureColumn('Student', 'isKhatim', 'BOOLEAN NOT NULL DEFAULT 0');
+      await this.ensureColumn('Student', 'khatmahCount', 'INTEGER NOT NULL DEFAULT 0');
+      await this.ensureColumn('Student', 'sheikhId', 'INTEGER');
+      await this.ensureColumn('Student', 'period', 'TEXT');
+      await this.ensureColumn('Student', 'halaqaId', 'INTEGER');
+      await this.ensureColumn('Student', 'status', "TEXT NOT NULL DEFAULT 'active'");
+      await this.ensureColumn('Student', 'dismissedAt', 'DATETIME');
+      await this.ensureColumn('Student', 'dailyRevisionAmount', 'INTEGER NOT NULL DEFAULT 4');
+      await this.ensureColumn('Student', 'examRevisionJuz', 'INTEGER NOT NULL DEFAULT 3');
+      await this.ensureColumn('Student', 'examNextFromJuz', 'INTEGER');
 
       await this.$executeRawUnsafe(`
         CREATE UNIQUE INDEX IF NOT EXISTS "Student_serialNumber_key" ON "Student"("serialNumber");
@@ -152,6 +160,98 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
           CONSTRAINT "History_sheikhId_fkey" FOREIGN KEY ("sheikhId") REFERENCES "Sheikh" ("id") ON DELETE SET NULL ON UPDATE CASCADE
         );
       `);
+      await this.ensureColumn('History', 'excused', 'BOOLEAN NOT NULL DEFAULT 0');
+
+      await this.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "Halaqa" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "name" TEXT NOT NULL,
+          "period" TEXT NOT NULL,
+          "sheikhId" INTEGER,
+          "notes" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "Halaqa_sheikhId_fkey" FOREIGN KEY ("sheikhId") REFERENCES "Sheikh" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+        );
+      `);
+
+      await this.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "StudentTransfer" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "studentId" INTEGER NOT NULL,
+          "date" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "fromPeriod" TEXT,
+          "toPeriod" TEXT,
+          "fromHalaqaId" INTEGER,
+          "toHalaqaId" INTEGER,
+          "fromHalaqaName" TEXT,
+          "toHalaqaName" TEXT,
+          "reason" TEXT,
+          "byName" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "StudentTransfer_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+        );
+      `);
+
+      await this.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "DisciplineAction" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "studentId" INTEGER NOT NULL,
+          "date" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "kind" TEXT NOT NULL,
+          "absenceCount" INTEGER NOT NULL DEFAULT 0,
+          "reason" TEXT,
+          "byId" INTEGER,
+          "byName" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "DisciplineAction_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+        );
+      `);
+
+      await this.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "MemorizationPortion" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "studentId" INTEGER NOT NULL,
+          "date" DATETIME NOT NULL,
+          "segments" TEXT NOT NULL,
+          "ayahCount" INTEGER NOT NULL DEFAULT 0,
+          "thumnAmount" REAL NOT NULL DEFAULT 0,
+          "status" TEXT NOT NULL DEFAULT 'جاري',
+          "notes" TEXT,
+          "sheikhId" INTEGER,
+          "sheikhName" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "MemorizationPortion_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+        );
+      `);
+
+      await this.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "RevisionSession" (
+          "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+          "studentId" INTEGER NOT NULL,
+          "date" DATETIME NOT NULL,
+          "kind" TEXT NOT NULL,
+          "fromPart" TEXT,
+          "toPart" TEXT,
+          "amount" REAL NOT NULL DEFAULT 0,
+          "fromJuz" INTEGER,
+          "toJuz" INTEGER,
+          "result" TEXT NOT NULL,
+          "notes" TEXT,
+          "sheikhId" INTEGER,
+          "sheikhName" TEXT,
+          "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "RevisionSession_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+        );
+      `);
+
+      await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "History_studentId_date_idx" ON "History"("studentId", "date");`);
+      await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "MemorizationPortion_studentId_date_idx" ON "MemorizationPortion"("studentId", "date");`);
+      await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "RevisionSession_date_kind_idx" ON "RevisionSession"("date", "kind");`);
+      await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "DisciplineAction_studentId_idx" ON "DisciplineAction"("studentId");`);
+
       this.logger.log('Database schema verified/initialized successfully.');
     } catch (err: any) {
       this.logger.warn(`Schema verification warning: ${err?.message || err}`);

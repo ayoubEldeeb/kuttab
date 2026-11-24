@@ -15,7 +15,9 @@ import {
   UserCheck,
   Calendar,
   LogOut,
-  LogIn
+  LogIn,
+  Layers,
+  NotebookPen
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import Dashboard from './pages/Dashboard';
@@ -29,6 +31,9 @@ import DailyAttendance from './pages/DailyAttendance';
 import Settings from './pages/Settings';
 import SheikhsManagement from './pages/SheikhsManagement';
 import Login from './pages/Login';
+import Halaqat from './pages/Halaqat';
+import WeeklyLog from './pages/WeeklyLog';
+import { useDisciplineAlerts } from './utils/program';
 import ProtectedRoute from './components/ProtectedRoute';
 import { ThemeAndSettingsProvider, useThemeAndSettings } from './context/ThemeAndSettingsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -39,6 +44,8 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
   const { user, isLoggedIn, logout } = useAuth();
   const isAdmin = user?.role === 'مشرف عام' || user?.username === 'admin';
   const isTodayHoliday = isHoliday(new Date());
+  const { data: disciplineAlerts = [] } = useDisciplineAlerts(isLoggedIn);
+  const badges: Record<string, number> = { '/': disciplineAlerts.length };
 
   const navGroups = [
     {
@@ -46,14 +53,16 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
       items: [
         { path: '/', icon: LayoutDashboard, label: 'لوحة التحكم', exact: true, description: 'نظرة عامة وإحصائيات' },
         { path: '/attendance', icon: UserCheck, label: 'تسجيل الحضور', exact: false, description: 'رصد الحضور والغياب السريع' },
+        { path: '/weekly-log', icon: NotebookPen, label: 'الحفظ الأسبوعي', exact: false, description: 'تسجيل المقرر الجديد بالآيات والأثمان' },
+        { path: '/revision-log', icon: Repeat, label: 'المراجعة والاختبار', exact: false, description: 'مراجعة الأثمان اليومية واختبار السبت' },
         { path: '/daily-log', icon: CalendarClock, label: 'السجل اليومي', exact: false, description: 'الحفظ الجديد والكتابة' },
-        { path: '/revision-log', icon: Repeat, label: 'سجل المراجعة', exact: false, description: 'أوراد التثبيت والمراجعة' },
       ]
     },
     {
       title: 'شؤون الطلاب',
       items: [
         { path: '/students', icon: Users, label: 'دليل الطلاب', exact: true, description: 'قوائم الطلاب وتصنيف المراحل' },
+        { path: '/halaqat', icon: Layers, label: 'الفترات والحلقات', exact: false, description: 'العصر والمغرب وحلقات المشايخ ونقل الطلاب' },
         { path: '/students?tab=supervision', icon: UserCheck, label: 'إشراف ومتابعة المشايخ', exact: false, description: 'توزيع الطلاب وتتبع إنجاز المشايخ' },
         { path: '/register', icon: UserPlus, label: 'تسجيل طالب جديد', exact: false, description: 'إضافة ملف طالب للحلقة' },
       ]
@@ -187,7 +196,14 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
                         </div>
                       </div>
 
-                      {isActive ? (
+                      {badges[item.path] ? (
+                        <span
+                          className="min-w-6 h-6 px-1.5 rounded-full bg-rose-600 text-white text-[11px] font-black flex items-center justify-center shrink-0 mr-2"
+                          title="طلاب يحتاجون قراراً بسبب الغياب"
+                        >
+                          {badges[item.path]}
+                        </span>
+                      ) : isActive ? (
                         <div className="w-1.5 h-6 rounded-full bg-amber-400 mr-2 shrink-0"></div>
                       ) : (
                         <ChevronLeft size={16} className="text-slate-300 group-hover:text-emerald-600 group-hover:-translate-x-0.5 transition-transform shrink-0" />
@@ -377,6 +393,8 @@ function MainLayout() {
               <Route path="/students" element={<ProtectedRoute><StudentsList /></ProtectedRoute>} />
               <Route path="/daily-log" element={<ProtectedRoute><DailyLog /></ProtectedRoute>} />
               <Route path="/revision-log" element={<ProtectedRoute><RevisionLog /></ProtectedRoute>} />
+              <Route path="/weekly-log" element={<ProtectedRoute><WeeklyLog /></ProtectedRoute>} />
+              <Route path="/halaqat" element={<ProtectedRoute><Halaqat /></ProtectedRoute>} />
               <Route path="/register" element={<ProtectedRoute><RegisterStudent /></ProtectedRoute>} />
               <Route path="/students/:id" element={<ProtectedRoute><StudentProfile /></ProtectedRoute>} />
               <Route path="/students/:id/report" element={<ProtectedRoute><StudentGuardianReport /></ProtectedRoute>} />

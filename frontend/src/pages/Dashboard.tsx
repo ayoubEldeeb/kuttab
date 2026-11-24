@@ -22,6 +22,7 @@ import {
   Edit2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import DisciplineAlertsPanel from '../components/DisciplineAlertsPanel';
 import api from '../utils/api';
 import { formatPart } from '../utils/formatPart';
 import { QURAN_STAGES, getQuranStage } from '../utils/quranStages';
@@ -328,6 +329,8 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      <DisciplineAlertsPanel />
 
       {/* Quick Search & Instant Jump Bar */}
       <div className="relative">

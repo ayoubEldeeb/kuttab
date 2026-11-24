@@ -15,13 +15,15 @@ export class StudentsController {
     isKhatim?: boolean;
     khatmahCount?: number;
     sheikhId?: number | null;
+    period?: string | null;
+    halaqaId?: number | null;
   }) {
     return this.studentsService.create(createStudentDto);
   }
 
   @Get()
-  findAll(@Query('date') date?: string) {
-    return this.studentsService.findAll(date);
+  findAll(@Query('date') date?: string, @Query('status') status?: string) {
+    return this.studentsService.findAll(date, status);
   }
 
   @Get('dashboard/stats')
@@ -34,6 +36,7 @@ export class StudentsController {
     studentId: number;
     date: string;
     status: string;
+    excused?: boolean;
     sheikhId?: number;
     sheikhName?: string;
     notes?: string;
@@ -46,6 +49,7 @@ export class StudentsController {
     date: string;
     studentIds: number[];
     status: string;
+    excused?: boolean;
     sheikhId?: number;
     sheikhName?: string;
   }) {
@@ -111,6 +115,9 @@ export class StudentsController {
       isKhatim?: boolean;
       khatmahCount?: number;
       sheikhId?: number | null;
+      dailyRevisionAmount?: number;
+      examRevisionJuz?: number;
+      examNextFromJuz?: number | null;
     },
   ) {
     return this.studentsService.update(+id, updateData);

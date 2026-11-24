@@ -23,6 +23,9 @@ import { formatPart } from '../utils/formatPart';
 import { QURAN_STAGES, getQuranStage } from '../utils/quranStages';
 import { getKhatmahLabel } from '../utils/khatmahUtils';
 import SheikhsSupervisionTab from '../components/SheikhsSupervisionTab';
+import TransferDialog, { type TransferStudent } from '../components/TransferDialog';
+import { PERIODS, matchesPlacement, periodName, suggestsAsrMove, useHalaqat } from '../utils/program';
+import { ArrowLeftRight, Archive } from 'lucide-react';
 
 export default function StudentsList() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -35,6 +38,11 @@ export default function StudentsList() {
   const [stageFilter, setStageFilter] = useState(initialStage);
   const [sheikhFilter, setSheikhFilter] = useState('all');
   const [khatmahCycleFilter, setKhatmahCycleFilter] = useState<'all' | '1' | '2' | '3' | '4plus'>('all');
+  const [periodFilter, setPeriodFilter] = useState('all');
+  const [halaqaFilter, setHalaqaFilter] = useState('all');
+  const [showDismissed, setShowDismissed] = useState(false);
+  const [transferTarget, setTransferTarget] = useState<TransferStudent | null>(null);
+  const { data: halaqat = [] } = useHalaqat();
 
   // Sync with searchParams when URL changes
   useEffect(() => {
@@ -59,9 +67,9 @@ export default function StudentsList() {
   });
 
   const { data: students, isLoading } = useQuery({
-    queryKey: ['students'],
+    queryKey: showDismissed ? ['students', 'status', 'dismissed'] : ['students'],
     queryFn: async () => {
-      const res = await api.get('/students');
+      const res = await api.get(showDismissed ? '/students?status=dismissed' : '/students');
       return res.data;
     },
   });
@@ -104,7 +112,7 @@ export default function StudentsList() {
       matchesSheikh = s.sheikhId === Number(sheikhFilter);
     }
 
-    return matchesSearch && matchesLevel && matchesStage && matchesSheikh;
+    return matchesSearch && matchesLevel && matchesStage && matchesSheikh && matchesPlacement(s, periodFilter, halaqaFilter);
   });
 
   const openWhatsapp = (student: any) => {
@@ -339,6 +347,47 @@ export default function StudentsList() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 w-full xl:w-auto">
+          {/* Period & Halaqa Filters */}
+          <select
+            value={periodFilter}
+            onChange={(e) => {
+              setPeriodFilter(e.target.value);
+              setHalaqaFilter('all');
+            }}
+            className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 focus:bg-white outline-none cursor-pointer"
+          >
+            <option value="all">كل الفترات</option>
+            {PERIODS.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+            <option value="none">بدون فترة</option>
+          </select>
+          <select
+            value={halaqaFilter}
+            onChange={(e) => setHalaqaFilter(e.target.value)}
+            className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-800 focus:bg-white outline-none cursor-pointer"
+          >
+            <option value="all">كل الحلقات</option>
+            {halaqat
+              .filter((h) => periodFilter === 'all' || h.period === periodFilter)
+              .map((h) => (
+                <option key={h.id} value={h.id}>{h.name}</option>
+              ))}
+            <option value="none">بدون حلقة</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setShowDismissed((v) => !v)}
+            className={`h-11 px-3.5 rounded-2xl text-xs font-bold border flex items-center gap-1.5 cursor-pointer transition-colors ${
+              showDismissed ? 'bg-rose-600 border-rose-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-rose-50'
+            }`}
+            title="عرض الطلاب المفصولين المحفوظة سجلاتهم"
+          >
+            <Archive size={15} />
+            {showDismissed ? 'عرض الطلاب النشطين' : 'أرشيف المفصولين'}
+          </button>
+
           {/* Supervising Sheikh Filter */}
           <select
             value={sheikhFilter}
@@ -374,7 +423,7 @@ export default function StudentsList() {
               <tr>
                 <th className="py-4 px-6">الطالب</th>
                 <th className="py-4 px-6">الرقم المتسلسل</th>
-                <th className="py-4 px-6">الشيخ المشرف</th>
+                <th className="py-4 px-6">الفترة والحلقة</th>
                 <th className="py-4 px-6">المرحلة القرآنية</th>
                 <th className="py-4 px-6">آخر موضع محفوظ</th>
                 <th className="py-4 px-6">ولي الأمر</th>
@@ -450,8 +499,22 @@ export default function StudentsList() {
                       </span>
                     </td>
 
-                    {/* Supervising Sheikh */}
-                    <td className="py-4 px-6 text-xs">
+                    {/* Period, halaqa & supervising sheikh */}
+                    <td className="py-4 px-6 text-xs space-y-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`font-bold whitespace-nowrap ${student.period ? 'text-emerald-800' : 'text-slate-400'}`}>
+                          {periodName(student.period)}
+                        </span>
+                        {student.halaqa && <span className="text-slate-500 whitespace-nowrap">· {student.halaqa.name}</span>}
+                        {suggestsAsrMove(student) && (
+                          <span className="text-[10px] font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-full whitespace-nowrap" title="وصل إلى سورة المجادلة">
+                            مؤهل للعصر
+                          </span>
+                        )}
+                        {student.status === 'dismissed' && (
+                          <span className="text-[10px] font-black text-rose-800 bg-rose-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">مفصول</span>
+                        )}
+                      </div>
                       {student.sheikh ? (
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-50 text-indigo-900 border border-indigo-200/70 font-bold whitespace-nowrap">
                           <UserCheck size={12} className="text-indigo-700" />
@@ -506,6 +569,15 @@ export default function StudentsList() {
 
                     <td className="py-4 px-6 text-left">
                       <div className="flex items-center justify-end gap-1.5">
+                        {student.status !== 'dismissed' && (
+                          <button
+                            onClick={() => setTransferTarget(student)}
+                            className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 hover:text-white hover:bg-indigo-600 transition-all shadow-2xs cursor-pointer"
+                            title="نقل الطالب إلى فترة أو حلقة أخرى"
+                          >
+                            <ArrowLeftRight size={15} />
+                          </button>
+                        )}
                         <Link
                           to={`/students/${student.id}/report`}
                           className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 hover:text-white hover:bg-teal-700 hover:border-teal-700 transition-all shadow-2xs"
@@ -539,6 +611,7 @@ export default function StudentsList() {
       </div>
       </>
       )}
+      {transferTarget && <TransferDialog students={[transferTarget]} onClose={() => setTransferTarget(null)} />}
     </div>
   );
 }
