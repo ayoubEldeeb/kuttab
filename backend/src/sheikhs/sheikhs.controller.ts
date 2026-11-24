@@ -1,21 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Headers, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { SheikhsService } from './sheikhs.service.js';
-
-function extractSheikhId(authHeader?: string, headerId?: string): number | null {
-  if (headerId) {
-    const parsed = parseInt(headerId, 10);
-    if (!isNaN(parsed)) return parsed;
-  }
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.replace('Bearer ', '').trim();
-    const parts = token.split('_');
-    if (parts[0] === 'shk' && parts[1]) {
-      const parsed = parseInt(parts[1], 10);
-      if (!isNaN(parsed)) return parsed;
-    }
-  }
-  return null;
-}
+import { extractSheikhId } from './auth.util.js';
 
 @Controller('sheikhs')
 export class SheikhsController {

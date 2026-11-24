@@ -23,6 +23,7 @@ import { Input } from '../components/ui/input';
 import toast from 'react-hot-toast';
 import { useThemeAndSettings, type AppTheme, type FontSize, WEEK_DAYS } from '../context/ThemeAndSettingsContext';
 import { useAuth } from '../context/AuthContext';
+import DataTransferSection from '../components/DataTransferSection';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -561,6 +562,9 @@ export default function Settings() {
           )}
         </div>
       </div>
+
+      {/* 5. Backup & data transfer (general supervisor only) */}
+      {isAdmin && <DataTransferSection />}
     </div>
   );
 }
